@@ -1,4 +1,27 @@
-serviceAccountKey.json
-*.env
+# Python
 __pycache__/
-instance/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+env/
+venv/
+
+# Firebase private key (VERY IMPORTANT)
+backend/serviceAccountKey.json
+
+# Environment variables
+.env
+*.env
+
+# Render build files
+build/
+dist/
+
+# Node modules (if any)
+node_modules/
+
+# VS Code
+.vscode/
