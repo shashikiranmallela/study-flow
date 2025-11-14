@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyFlow</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <span>StudyFlow</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-page="dashboard">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7"/>
+                    <rect x="14" y="3" width="7" height="7"/>
+                    <rect x="14" y="14" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/>
+                </svg>
+                <span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-page="todos">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="8" y1="6" x2="21" y2="6"/>
+                    <line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                    <line x1="3" y1="6" x2="3.01" y2="6"/>
+                    <line x1="3" y1="12" x2="3.01" y2="12"/>
+                    <line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+                <span>Todo List</span>
+            </a>
+            <a href="#" class="nav-item" data-page="timer">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span>Time Tracker</span>
+            </a>
+            <a href="#" class="nav-item" data-page="routine">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                <span>Daily Routine</span>
+            </a>
+            <a href="#" class="nav-item" data-page="stats">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="20" x2="12" y2="10"/>
+                    <line x1="18" y1="20" x2="18" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="16"/>
+                </svg>
+                <span>Statistics</span>
+            </a>
+        </nav>
+        <a href="#" class="nav-item logout-link" id="logoutLink" style="display: none;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span>Logout</span>
+        </a>
+    </aside>
+
+    <main class="main-content">
+        <header class="app-header">
+            <button class="sidebar-toggle" id="sidebarToggle">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="12" x2="21" y2="12"/>
+                    <line x1="3" y1="6" x2="21" y2="6"/>
+                    <line x1="3" y1="18" x2="21" y2="18"/>
+                </svg>
+            </button>
+            <div class="header-spacer"></div>
+            <div class="auth-buttons" id="guestAuth">
+                <a href="loginpage.html" class="btn btn-outline">Login</a>
+                <a href="loginpage.html?mode=signup" class="btn btn-primary">Sign Up</a>
+            </div>
+            <button class="theme-toggle" id="themeToggle">
+                <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/>
+                    <line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/>
+                    <line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+                <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+            </button>
+        </header>
+
+        <div class="content-area">
+            <div class="page active" id="dashboard">
+                <div class="hero-section">
+                    <h2>Welcome back, <span id="username">User</span>! </h2>
+                    <p>Ready to crush your goals today? Let's make it count!</p>
+                </div>
+
+                <div class="stats-grid" id="dashboardStats">
+                </div>
+
+                <div class="card streak-card">
+                     <div class="card-header streak-header">
+                        <div class="streak-summary">
+                            <h4 id="totalSubmissions">0 sessions in the past year</h4>
+                            <div class="streak-summary-details">
+                                <span>Total active days: <strong id="totalActiveDays">0</strong></span>
+                                <span>Max streak: <strong id="maxStreak">0</strong></span>
+                                <!-- NEW: Added Current Streak Display -->
+                                <span>Current streak: <strong id="currentStreak">0</strong></span>
+                            </div>
+                        </div>
+                         <select id="streakYearSelector" class="streak-year-selector"></select>
+                    </div>
+                    <div class="card-content">
+                        <div class="streak-calendar-container">
+                            <div id="streakCalendar" class="streak-calendar">
+                                <!-- JS will populate this -->
+                            </div>
+                        </div>
+                        <div class="streak-legend">
+                            <span>Less</span>
+                            <div class="streak-day streak-level-0"></div>
+                            <div class="streak-day streak-level-1"></div>
+                            <div class="streak-day streak-level-2"></div>
+                            <div class="streak-day streak-level-3"></div>
+                            <div class="streak-day streak-level-4"></div>
+                            <span>More</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bottom-grid">
+                    <div class="card recent-tasks-card">
+                        <div class="card-header">
+                            <h3>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px;">
+                                    <line x1="8" y1="6" x2="21" y2="6"/>
+                                    <line x1="8" y1="12" x2="21" y2="12"/>
+                                    <line x1="8" y1="18" x2="21" y2="18"/>
+                                    <line x1="3" y1="6" x2="3.01" y2="6"/>
+                                    <line x1="3" y1="12" x2="3.01" y2="12"/>
+                                    <line x1="3" y1="18" x2="3.01" y2="18"/>
+                                </svg>
+                                Recent Tasks
+                            </h3>
+                        </div>
+                        <div class="card-content" id="dashboardTasks">
+                            </div>
+                    </div>
+
+                    <div class="card tip-card green-tip-card">
+                        <div class="card-header">
+                            <h3>💡 Quick Tip</h3>
+                        </div>
+                        <div class="card-content">
+                            <p><strong>Try the Pomodoro Technique:</strong><br>
+                            Study for 25 minutes, then take a 5-minute break. After 4 sessions, take a longer 15-30 minute break.</p>
+                            <div class="tip-box">
+                                <p>⏱️ This helps maintain focus and prevents burnout!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page" id="todos">
+                <h1>Todo List</h1>
+                <p class="page-subtitle">Organize your tasks and boost productivity</p>
+
+                <div class="card add-todo-card">
+                    <div class="card-header todo-add-header">
+                        <h3>
+                            <span class="tip-icon-purple">✨</span>
+                            Add New Task
+                        </h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="input-group todo-input-group">
+                            <input type="text" class="input" id="newTodo" placeholder="What do you need to do?">
+                            <button class="btn btn-primary btn-add-suffix" id="addTodoBtn">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"/>
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                </svg>
+                                Add
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="todo-grid">
+                    <div class="card">
+                        <div class="card-header active-todo-header">
+                            <h3>
+                                <span class="pulse-dot"></span>
+                                Active Tasks (<span id="activeTodoCount">0</span>)
+                            </h3>
+                        </div>
+                        <div class="card-content">
+                            <ul class="task-list" id="activeTodos"></ul>
+                            <div class="empty-state-icon" id="activeTodoEmptyState" style="display: none;">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                                <p>No active tasks. Great job! 👍</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header completed-todo-header">
+                            <h3>
+                                <span class="tip-icon-green">✅</span>
+                                Completed Tasks (<span id="completedTodoCount">0</span>)
+                            </h3>
+                        </div>
+                        <div class="card-content">
+                            <ul class="task-list" id="completedTodos"></ul>
+                            <div class="empty-state-icon" id="completedTodoEmptyState" style="display: none;">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                                <p>No completed tasks yet.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page" id="timer">
+                <h1>Time Tracker</h1>
+                <p class="page-subtitle">Track your study sessions and breaks</p>
+
+                <div class="timer-grid">
+                    <div class="card timer-card" id="timerCard">
+                        <div class="card-header timer-header-study" id="timerHeader">
+                            <h3 id="timerTitle">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px;">
+                                    <polygon points="5 3 19 12 5 21 5 3"/>
+                                </svg>
+                                Study Timer
+                            </h3>
+                        </div>
+                        <div class="card-content timer-content">
+                            <div class="timer-input-group" id="taskInputGroup">
+                                <label>What are you studying?</label>
+                                <input type="text" class="input" id="currentTask" placeholder="e.g., Mathematics, Physics, History...">
+                            </div>
+
+                            <div class="timer-display-container">
+                                <div class="timer-display" id="timerDisplay">00:00:00</div>
+                            </div>
+
+                            <div class="timer-controls">
+                                <button class="btn btn-primary btn-lg btn-gradient" id="toggleTimerBtn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="6" y="4" width="4" height="16"></rect>
+                                        <rect x="14" y="4" width="4" height="16"></rect>
+                                    </svg>
+                                    Start
+                                </button>
+                                <button class="btn btn-outline btn-lg" id="resetTimerBtn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="1 4 1 10 7 10"/>
+                                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                                    </svg>
+                                    Reset
+                                </button>
+                                <button class="btn btn-danger btn-lg" id="endSessionBtn" style="display: none;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                    </svg>
+                                    End
+                                </button>
+                            </div>
+
+                            <button class="btn btn-outline btn-full btn-switch-mode" id="toggleBreakBtn">
+                                Switch to Break Mode
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Today's Summary</h3>
+                        </div>
+                        <div class="card-content" id="todaySummary">
+                            </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page" id="routine">
+                <div class="routine-header-controls">
+                    <div>
+                        <h1>Daily Routine</h1>
+                        <p class="page-subtitle">Plan your perfect day for maximum productivity</p>
+                    </div>
+                    <button class="btn btn-primary" id="editRoutineBtn">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                        Edit
+                    </button>
+                </div>
+
+                <div class="card">
+                    <div class="card-header routine-schedule-header">
+                        <h3>Your Schedule</h3>
+                        <button class="btn btn-primary btn-sm" id="addSlotBtn" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            Add Slot
+                        </button>
+                    </div>
+                    <div class="card-content">
+                        <div class="routine-schedule" id="routineSchedule">
+                            </div>
+                    </div>
+                </div>
+
+                <div class="routine-tips">
+                    <div class="card">
+                        <div class="card-header"><h3><span class="tip-icon-yellow">💡</span> Tip</h3></div>
+                        <div class="card-content">
+                            <p class="small-text">Schedule your most challenging tasks during your peak productivity hours.</p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h3><span class="tip-icon-red">⏰</span> Reminder</h3></div>
+                        <div class="card-content">
+                            <p class="small-text">Don't forget to include regular breaks to maintain focus and energy.</p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h3><span class="tip-icon-purple">🎯</span> Goal</h3></div>
+                        <div class="card-content">
+                            <p class="small-text">Consistency is key. Stick to your routine for at least 21 days!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="page" id="stats">
+                <div class="stats-header-controls">
+                    <div>
+                        <h1>Statistics</h1>
+                        <p class="page-subtitle">Track your progress and achievements</p>
+                    </div>
+                    <button class="btn btn-primary" data-page="full-report">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+                        View Full Report
+                    </button>
+                </div>
+                
+                <div class="date-picker-container">
+                    <button class="btn btn-outline" id="datePickerBtn">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px; height:16px;">
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="16" y1="2" x2="16" y2="6"/>
+                            <line x1="8" y1="2" x2="8" y2="6"/>
+                            <line x1="3" y1="10" x2="21" y2="10"/>
+                        </svg>
+                        <span>View specific date</span>
+                    </button>
+                    <button class="btn btn-outline" id="clearDateBtn" style="display: none;">Clear</button>
+                    <div class="calendar-popup" id="calendarPopup"></div>
+                </div>
+
+                <div id="stats-default-view">
+                    <div class="tabs stats-tabs">
+                        <div class="tab-list" id="statsTabList">
+                            <button class="tab active" data-tab="today">Today</button>
+                            <button class="tab" data-tab="week">This Week</button>
+                            <button class="tab" data-tab="month">This Month</button>
+                            <button class="tab" data-tab="year">This Year</button>
+                        </div>
+                    </div>
+                    
+                    <div class="stats-grid" id="statsMainGrid" style="margin-top: 1.5rem;">
+                        </div>
+                    
+                    <div class="bottom-grid stats-bottom-grid">
+                        <div class="card time-by-subject-card">
+                            <div class="card-header">
+                                <h3><span class="tip-icon-purple">🕒</span> Time by Subject (All Time)</h3>
+                            </div>
+                            <div class="card-content" id="timeBySubject">
+                            </div>
+                        </div>
+
+                        <div class="card recent-completed-card">
+                            <div class="card-header">
+                                <h3><span class="tip-icon-green">✅</span> Recent Completed Tasks</h3>
+                            </div>
+                            <div class="card-content" id="recentCompletedTasks">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card progress-insights-card">
+                        <div class="card-header progress-insights-header">
+                            <h3><span class="tip-icon-purple">📊</span> Progress Insights</h3>
+                        </div>
+                        <div class="card-content" id="progressInsights">
+                             <p class="small-text">Start tracking your study time to see your progress here!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="stats-custom-date-view" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 id="customDateTitle"></h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="stats-grid" id="customDateStatsGrid"></div>
+                            
+                            <!-- NEW: Subjects Studied Section -->
+                            <h4 style="margin-top: 1.5rem;"><span class="tip-icon-purple">📚</span> Subjects Studied on this Day</h4>
+                            <div id="customDateStudySubjects" class="study-subject-list" style="margin-top: 1rem;"></div>
+                            <div class="empty-state-icon" id="customDateStudyEmptyState" style="display: none;">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                <p>No study sessions were recorded on this day.</p>
+                            </div>
+
+                            <!-- Updated Tasks Completed Section -->
+                            <h4 style="margin-top: 1.5rem;"><span class="tip-icon-green">✅</span> Tasks Completed on this Day</h4>
+                            <ul class="task-list" id="customDateTasks" style="margin-top: 1rem;"></ul>
+                            <div class="empty-state-icon" id="customDateTaskEmptyState" style="display: none;">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                <p>No tasks were completed on this day.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="page" id="full-report">
+                <h1>Overall History Report</h1>
+                <p class="page-subtitle">A complete breakdown of all your activities.</p>
+                <div class="card">
+                    <div class="card-content">
+                        <div class="empty-state-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 64px; height: 64px; opacity: 0.1;">
+                                <line x1="12" y1="20" x2="12" y2="10"/>
+                                <line x1="18" y1="20" x2="18" y2="4"/>
+                                <line x1="6" y1="20" x2="6" y2="16"/>
+                            </svg>
+                            <p>This powerful reporting page is under construction. 🏗️</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="modal" id="graphModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
+                        <line x1="12" y1="20" x2="12" y2="10"/>
+                        <line x1="18" y1="20" x2="18" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="16"/>
+                    </svg>
+                    <span>Study Time Graph</span>
+                </h2>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
