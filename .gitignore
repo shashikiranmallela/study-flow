@@ -3,25 +3,29 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Virtual env
 .venv/
 env/
 venv/
 
-# Firebase private key (VERY IMPORTANT)
+# Firebase private key (VERY IMPORTANT - NEVER PUSH!)
 backend/serviceAccountKey.json
 
-# Environment variables
+# Environment variables (NEVER PUSH!)
 .env
+.env.local
 *.env
 
-# Render build files
-build/
-dist/
-
-# Node modules (if any)
+# Node modules
 node_modules/
 
-# VS Code
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
 .vscode/
+.idea/
+
+# Build/dist
+build/
+dist/

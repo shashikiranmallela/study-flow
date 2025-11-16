@@ -162,24 +162,6 @@ def init_user():
         logger.error(f"Error initializing user: {e}")
         return jsonify({"error": "Failed to initialize user"}), 500
 
-@app.route('/api/admin/users', methods=['GET'])
-def admin_get_all_users():
-    """Get all users (NO AUTH for demo - add auth in production!)"""
-    try:
-        admin_password = request.args.get('key')
-        if admin_password != os.environ.get('ADMIN_KEY', 'your-secret-key'):
-            return jsonify({"error": "Unauthorized"}), 401
-        
-        users = []
-        docs = db.collection('users').stream()
-        for doc in docs:
-            users.append(doc.to_dict())
-        
-        return jsonify({"count": len(users), "users": users})
-    except Exception as e:
-        logger.error(f"Error fetching users: {e}")
-        return jsonify({"error": "Failed to fetch users"}), 500
-
 @app.route('/health')
 def health():
     """Health check endpoint"""

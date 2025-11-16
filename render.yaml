@@ -10,16 +10,26 @@ services:
         scope: run_and_build
       - key: F_AUTH_DOMAIN
         scope: run_and_build
+        value: "studyflow-b4ddf.firebaseapp.com"
       - key: F_PROJECT_ID
         scope: run_and_build
+        value: "studyflow-b4ddf"
       - key: F_STORAGE_BUCKET
         scope: run_and_build
+        value: "studyflow-b4ddf.firebasestorage.app"
       - key: F_MSG_ID
         scope: run_and_build
+        value: "456016833263"
       - key: F_APP_ID
         scope: run_and_build
+        value: "1:456016833263:web:f6d4ef97231a43c103491a"
       - key: F_MEASURE_ID
+        scope: run_and_build
+      - key: ADMIN_KEY
         scope: run_and_build
       - key: FRONTEND_ORIGIN
         scope: run_and_build
         value: "*"
+      - key: PORT
+        scope: run_and_build
+        value: "5000"
