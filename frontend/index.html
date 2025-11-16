@@ -501,6 +501,18 @@
         </div>
     </div>
 
+    <!-- Firebase SDK (MUST come before firebase-init.js) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <!-- Custom Firebase initialization (fetches config from backend) -->
+    <script src="firebase-init.js"></script>
+
+    <!-- Firebase wrapper for storage sync -->
+    <script src="firebase-wrapper.js"></script>
+
+    <!-- Main app logic -->
     <script src="script.js"></script>
 </body>
 </html>

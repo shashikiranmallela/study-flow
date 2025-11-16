@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: studyflow-backend
+    env: python
+    plan: free
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "cd backend && gunicorn app:app"
+    envVars:
+      - key: F_API_KEY
+        scope: run_and_build
+      - key: F_AUTH_DOMAIN
+        scope: run_and_build
+      - key: F_PROJECT_ID
+        scope: run_and_build
+      - key: F_STORAGE_BUCKET
+        scope: run_and_build
+      - key: F_MSG_ID
+        scope: run_and_build
+      - key: F_APP_ID
+        scope: run_and_build
+      - key: F_MEASURE_ID
+        scope: run_and_build
+      - key: FRONTEND_ORIGIN
+        scope: run_and_build
+        value: "*"

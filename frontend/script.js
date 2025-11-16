@@ -14,31 +14,59 @@ const formatTimeShort = (seconds) => {
     return `${seconds}s`;
 };
 
-const showToast = (message) => {
+// Add error handler for API calls
+const apiCall = async (url, options = {}) => {
+  try {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `API error: ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error(`API call failed: ${error.message}`);
+    showToast(`Error: ${error.message}`);
+    throw error;
+  }
+}
+
+const showToast = (message, duration = 3000) => {
+  try {
     const toast = document.getElementById('toast');
+    if (!toast) {
+      console.error('Toast element not found');
+      return;
+    }
     toast.textContent = message;
     toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 3000);
+    setTimeout(() => toast.classList.remove('show'), duration);
+  } catch (error) {
+    console.error('Error showing toast:', error);
+  }
 };
+
 const updateAuthUI = () => {
+  try {
     const isLoggedIn = storage.get('isLoggedIn', false);
-    const guestAuth   = document.getElementById('guestAuth');
-    const logoutLink  = document.getElementById('logoutLink');
+    const guestAuth = document.getElementById('guestAuth');
+    const logoutLink = document.getElementById('logoutLink');
     const usernameSpan = document.getElementById('username');
 
-    // username
     const savedName = storage.get('username', 'User');
     if (usernameSpan) usernameSpan.textContent = savedName;
 
-    // buttons / logout
     if (isLoggedIn) {
-        if (guestAuth)  guestAuth.style.display = 'none';
-        if (logoutLink) logoutLink.style.display = 'flex';
+      if (guestAuth) guestAuth.style.display = 'none';
+      if (logoutLink) logoutLink.style.display = 'flex';
     } else {
-        if (guestAuth)  guestAuth.style.display = 'flex';
-        if (logoutLink) logoutLink.style.display = 'none';
+      if (guestAuth) guestAuth.style.display = 'flex';
+      if (logoutLink) logoutLink.style.display = 'none';
     }
+  } catch (error) {
+    console.error('Error updating auth UI:', error);
+  }
 };
+
 const removeStorage = (key) => {
     localStorage.removeItem(key);
 };
@@ -1128,7 +1156,7 @@ const openChartModal = (period, dateOverride = null) => {
         case 'week':
             title = 'Study Time - This Week';
             const weekStart = new Date(now);
-            weekStart.setDate(now.getDate() - weekStart.getDay());
+            weekStart.setDate(now.getDate() - now.getDay());
             weekStart.setHours(0,0,0,0);
             chartData = Array.from({length: 7}, (_, i) => {
                 const day = new Date(weekStart);

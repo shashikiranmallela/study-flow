@@ -253,6 +253,10 @@
 
     firebase.initializeApp(firebaseConfig);
 
+    const showError = (message) => {
+      alert(`Error: ${message}`);
+    };
+
     const container = document.getElementById('container');
     const toSignUp = document.getElementById('toSignUp');
     const toLogin = document.getElementById('toLogin');
@@ -274,6 +278,12 @@
       let email = signupEmail.value;
       let password = signUpPassword.value;
       let confirm = confirmSignUpPassword.value;
+      let username = signupUsername.value.trim();
+
+      if(!username) {
+        showError('Username is required');
+        return;
+      }
 
       if(password !== confirm){
         passwordError.style.display = "block";
@@ -283,10 +293,29 @@
       passwordError.style.display = "none";
 
       try{
-        await firebase.auth().createUserWithEmailAndPassword(email,password);
+        const userCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+        
+        // Initialize user in Firestore
+        const response = await fetch('/api/user/init', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: userCred.user.uid,
+            email: email,
+            username: username
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to initialize user data');
+        }
+
         alert("Account created!");
         enterLogin();
-      }catch(err){ alert(err.message); }
+      }catch(err){
+        console.error('Signup error:', err);
+        showError(err.message || 'Signup failed');
+      }
     };
 
     // LOGIN
@@ -296,22 +325,28 @@
       let password = signinPassword.value;
 
       try{
-        await firebase.auth().signInWithEmailAndPassword(email,password);
+        const userCred = await firebase.auth().signInWithEmailAndPassword(email, password);
         alert("Login successful!");
         window.location.href = "index.html";
-      }catch(err){ alert(err.message); }
+      }catch(err){
+        console.error('Login error:', err);
+        showError(err.message || 'Login failed');
+      }
     };
 
-    // FORGOT
+    // FORGOT PASSWORD
     document.getElementById('forgotForm').onsubmit = async(e)=>{
       e.preventDefault();
       let email = forgotEmailInput.value;
 
       try{
         await firebase.auth().sendPasswordResetEmail(email);
-        alert("Reset link sent!");
+        alert("Reset link sent to your email!");
         enterLogin();
-      }catch(err){ alert(err.message); }
+      }catch(err){
+        console.error('Password reset error:', err);
+        showError(err.message || 'Failed to send reset email');
+      }
     };
   </script>
 </body>

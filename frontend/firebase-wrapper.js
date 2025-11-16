@@ -1,69 +1,115 @@
 /* firebase-wrapper.js
-   Provides storage.get/set that mirror localStorage and sync to Firestore when user is signed-in.
+   Provides storage.get/set that sync to Firestore.
    Include AFTER firebase-init.js and BEFORE your script.js in index.html.
 */
 (function(){
+  let currentUser = null;
+  let firestoreCache = {};
+  let isSyncing = false;
+
+  // Initialize auth listener
+  if (window.firebaseAuth) {
+    window.firebaseAuth.onAuthStateChanged(async (user) => {
+      currentUser = user;
+      if (user) {
+        await loadUserDataFromFirestore();
+        if (typeof window.updateAuthUI === 'function') {
+          window.updateAuthUI();
+        }
+      } else {
+        firestoreCache = {};
+        if (typeof window.updateAuthUI === 'function') {
+          window.updateAuthUI();
+        }
+      }
+    });
+  }
+
+  // Load all user data from Firestore
+  async function loadUserDataFromFirestore() {
+    if (!currentUser) return;
+    
+    try {
+      const response = await fetch('/api/user/data', {
+        headers: {
+          'Authorization': `Bearer ${await currentUser.getIdToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        console.error('Failed to load user data:', response.statusText);
+        return;
+      }
+
+      const data = await response.json();
+      firestoreCache = data;
+      console.log('User data loaded from Firestore');
+    } catch (error) {
+      console.error('Error loading user data from Firestore:', error);
+    }
+  }
+
+  // Sync data to Firestore
+  async function syncToFirestore(key, value) {
+    if (!currentUser) {
+      console.warn('User not authenticated, cannot sync to Firestore');
+      return;
+    }
+
+    if (isSyncing) return;
+    isSyncing = true;
+
+    try {
+      const payload = { [key]: value };
+      const response = await fetch('/api/user/data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await currentUser.getIdToken()}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        console.error('Failed to sync data to Firestore:', response.statusText);
+      } else {
+        console.log(`Synced ${key} to Firestore`);
+      }
+    } catch (error) {
+      console.error('Error syncing to Firestore:', error);
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  // Storage API
   window.storage = {
-    get: function(key, defaultValue){
+    get: function(key, defaultValue = null) {
       try {
-        var user = (window.firebaseAuth && window.firebaseAuth.currentUser) ? window.firebaseAuth.currentUser : null;
-        if (user && window.__firestoreCache && window.__firestoreCache.hasOwnProperty(key)) {
-          return window.__firestoreCache[key];
+        if (currentUser && firestoreCache.hasOwnProperty(key)) {
+          return firestoreCache[key];
         }
-        var item = localStorage.getItem(key);
-        return item ? JSON.parse(item) : defaultValue;
-      } catch(err) { console.error('storage.get', err); return defaultValue; }
+        return defaultValue;
+      } catch (err) {
+        console.error('storage.get error:', err);
+        return defaultValue;
+      }
     },
-    set: function(key, value){
-      try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){ console.warn('localStorage.set failed', e); }
+
+    set: function(key, value) {
       try {
-        var user = (window.firebaseAuth && window.firebaseAuth.currentUser) ? window.firebaseAuth.currentUser : null;
-        if (user) {
-          var uid = user.uid;
-          var docRef = window.firestore.collection('users').doc(uid);
-          var obj = {};
-          obj[key] = value;
-          // write under appData map
-          docRef.set({ appData: obj }, { merge: true }).catch(function(e){ console.error('firestore write failed', e); });
-          window.__firestoreCache = window.__firestoreCache || {};
-          window.__firestoreCache[key] = value;
+        firestoreCache[key] = value;
+        
+        if (currentUser) {
+          syncToFirestore(key, value);
+        } else {
+          console.warn('User not authenticated, data not saved to Firestore');
         }
-      } catch(err){ console.error('storage.set', err); }
+      } catch (err) {
+        console.error('storage.set error:', err);
+      }
     }
   };
 
-  // Auth listener to populate cache and merge local->firestore
-  if (window.firebaseAuth) {
-    window.__firestoreCache = {};
-    window.firebaseAuth.onAuthStateChanged(async function(user){
-      if (user) {
-        try {
-          var docRef = window.firestore.collection('users').doc(user.uid);
-          var snap = await docRef.get();
-          var appData = (snap.exists && snap.data().appData) ? snap.data().appData : {};
-          window.__firestoreCache = Object.assign({}, appData);
-          // merge local keys if remote missing
-          var keys = ['todos','timeSessions','timerState','username','theme','routine','currentStatsPeriod','isLoggedIn'];
-          var toSet = {};
-          keys.forEach(function(k){
-            try {
-              var raw = localStorage.getItem(k);
-              if (raw && !window.__firestoreCache.hasOwnProperty(k)) {
-                toSet[k] = JSON.parse(raw);
-                window.__firestoreCache[k] = JSON.parse(raw);
-              }
-            } catch(e){}
-          });
-          if (Object.keys(toSet).length > 0) {
-            await docRef.set({ appData: toSet }, { merge: true });
-          }
-        } catch(e){ console.error('auth sync failed', e); }
-      } else {
-        window.__firestoreCache = {};
-      }
-      if (typeof window.updateAuthUI === 'function') window.updateAuthUI();
-    });
-  } else {
-    console.warn('firebaseAuth not detected; ensure firebase-init.js loaded before firebase-wrapper.js');
-  }
+  console.log('Firebase wrapper initialized');
 })();
