@@ -1,7 +1,7 @@
 (async () => {
   try {
-    // Use your Render backend URL
-    const backendUrl = 'https://studyflow-backend-xxxx.onrender.com';
+    // Use your actual Render backend URL
+    const backendUrl = 'https://study-flow-ea7b.onrender.com';
     
     const res = await fetch(`${backendUrl}/firebase-config`);
     if (!res.ok) {
@@ -23,6 +23,5 @@
     console.log('Firebase initialized successfully');
   } catch (err) {
     console.error('Firebase initialization error:', err);
-    // Fallback: still initialize even if config fetch fails (uses hardcoded config if available)
   }
 })();
