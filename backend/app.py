@@ -170,6 +170,9 @@ def health():
     except Exception as e:
         logger.error(f"Health check error: {e}")
         return jsonify({"status": "error"}), 500
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({"message": "Study Flow backend is running"}), 200
 
 @app.errorhandler(404)
 def not_found(error):
