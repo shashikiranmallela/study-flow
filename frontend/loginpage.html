@@ -286,7 +286,9 @@
         const userCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
         
         // Initialize user in Firestore
-        const response = await fetch('/api/user/init', {
+        const backendUrl = "https://study-flow-ea7b.onrender.com";
+
+        const response = await fetch('${backendUrl}/api/user/init', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
