@@ -296,7 +296,7 @@
         // Initialize user in Firestore
         const backendUrl = "https://study-flow-ea7b.onrender.com";
 
-        const response = await fetch('${backendUrl}/api/user/init', {
+        const response = await fetch(`${backendUrl}/api/user/init`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
