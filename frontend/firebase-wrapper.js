@@ -2,6 +2,8 @@
    Provides storage.get/set that sync to Firestore.
    Include AFTER firebase-init.js and BEFORE your script.js in index.html.
 */
+const backendUrl = "https://study-flow-ea7b.onrender.com";
+
 (function(){
   let currentUser = null;
   let firestoreCache = {};
@@ -30,7 +32,7 @@
     if (!currentUser) return;
     
     try {
-      const response = await fetch('/api/user/data', {
+      const response = await fetch('${backendUrl}/api/user/data', {
         headers: {
           'Authorization': `Bearer ${await currentUser.getIdToken()}`
         }
