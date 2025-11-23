@@ -1470,13 +1470,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const logoutLink = document.getElementById('logoutLink');
-    logoutLink.addEventListener('click', (e) => {
+    logoutLink.addEventListener('click', async (e) => {
         e.preventDefault();
-        storage.set('isLoggedIn', false);
-        removeStorage('username');  // Better to remove than set null, avoids "null" string issues
-        updateAuthUI();                 // <-- refresh UI after logout
+    
+        // Clear ALL stored UI data
+        localStorage.clear();
+    
+        // Firebase logout
+        if (window.firebaseAuth) {
+            await window.firebaseAuth.signOut();
+        }
+    
         showToast('Logged out successfully!');
+    
+        // Reload page to re-initialize in guest mode
+        location.reload();
     });
+
     // -------------------------------------------------------------------
 
     navigateTo('dashboard');
