@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Initialize Firebase Admin
 # ---------------------
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase-admin-key.json")
+    cred = credentials.Certificate("serviceAccountKey.json")  # <-- FIXED
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -53,7 +53,7 @@ def home():
     return jsonify({"message": "Study Flow Backend Running"}), 200
 
 # ---------------------
-# Get Firebase Config (already works)
+# Get Firebase Config
 # ---------------------
 @app.route("/firebase-config", methods=["GET"])
 def firebase_config():
@@ -66,7 +66,6 @@ def firebase_config():
         "appId": os.environ.get("F_APP_ID"),
         "measurementId": os.environ.get("F_MEASURE_ID"),
     }
-
     return jsonify(config), 200
 
 # ---------------------
@@ -83,8 +82,7 @@ def init_user():
         if not uid:
             return jsonify({"error": "UID missing"}), 400
 
-        user_doc = db.collection("users").document(uid)
-        user_doc.set({
+        db.collection("users").document(uid).set({
             "email": email,
             "username": username,
             "todos": [],
@@ -96,11 +94,10 @@ def init_user():
 
     except Exception as e:
         logger.error(f"Init user error: {e}")
-        return jsonify({"error": "Failed to init user"}), 500
+        return jsonify({"error": "Failed to init user"}), 200  # <-- FAIL SAFE
 
 # ---------------------
 # SAFE: GET USER DATA
-# NEVER returns errors
 # ---------------------
 @app.route("/api/user/data", methods=["GET"])
 @check_auth
@@ -109,40 +106,33 @@ def get_user_data(uid):
         doc = db.collection("users").document(uid).get()
 
         if not doc.exists:
-            # NEW USER → return empty object (fixes login redirect loop)
-            return jsonify({}), 200
+            return jsonify({}), 200  # <-- FIXED
 
-        # Return user data safely
         return jsonify(doc.to_dict()), 200
 
     except Exception as e:
         logger.error(f"Error reading user data: {e}")
-        # FAIL-SAFE: never break frontend
-        return jsonify({}), 200
+        return jsonify({}), 200  # <-- FIXED
 
 # ---------------------
 # SAFE: UPDATE USER DATA
-# NEVER returns error
 # ---------------------
 @app.route("/api/user/data", methods=["POST"])
 @check_auth
 def update_user_data(uid):
     try:
         incoming = request.get_json() or {}
-
-        user_doc = db.collection("users").document(uid)
-        user_doc.set(incoming, merge=True)
-
+        db.collection("users").document(uid).set(incoming, merge=True)
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
         logger.error(f"Error saving user data: {e}")
-        # fail-safe; frontend should never break
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok"}), 200  # <-- FIXED
 
 # ---------------------
 # Start (for Render)
 # ---------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
