@@ -236,6 +236,8 @@ function gatherLocalForMigration() {
       console.log('firebase-wrapper: signed out');
       // Not signed in: don't attempt cloud loads; still ensure script knows nothing to wait for
       window.__firestoreDataLoaded = true;
+      document.dispatchEvent(new Event("cloud-sync-ready"));
+
       return;
     }
 
