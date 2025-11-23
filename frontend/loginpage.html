@@ -245,31 +245,6 @@
   <script src="firebase-init.js"></script>
   <script src="firebase-wrapper.js"></script>
   <script src="script.js"></script>
-  
-  <!-- 🔥 ADD THIS BLOCK -->
-  <script>
-  function waitForFirebaseAuthReady() {
-      return new Promise(resolve => {
-          const check = setInterval(() => {
-              if (window.firebaseAuth) {
-                  clearInterval(check);
-                  resolve();
-              }
-          }, 50);
-      });
-  }
-  
-  (async () => {
-      await waitForFirebaseAuthReady();
-      firebase.auth().onAuthStateChanged(user => {
-          if (user) {
-              window.location.href = "index.html";
-          }
-      });
-  })();
-  </script>
-
-
 
 
 
