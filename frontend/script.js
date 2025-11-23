@@ -71,6 +71,20 @@ const removeStorage = (key) => {
     localStorage.removeItem(key);
 };
 
+// Local Storage
+const storage = {
+    get: (key, defaultValue = null) => {
+        try {
+            const item = localStorage.getItem(key);
+            return item ? JSON.parse(item) : defaultValue;
+        } catch {
+            return defaultValue;
+        }
+    },
+    set: (key, value) => {
+        localStorage.setItem(key, JSON.stringify(value));
+    }
+};
 
 // --- App State ---
 let calendarDate = new Date();
@@ -1422,27 +1436,6 @@ const setupStreakCalendar = () => {
         renderStreakGrid(streakYear);
     });
 };
-firebase.auth().onAuthStateChanged((user) => {
-    const guestAuth = document.getElementById("guestAuth");
-    const logoutLink = document.getElementById("logoutLink");
-
-    if (user) {
-        // Logged in → hide login/signup
-        storage.set("isLoggedIn", true);
-        if (guestAuth) guestAuth.style.display = "none";
-        if (logoutLink) logoutLink.style.display = "flex";
-
-        // Save email/name
-        storage.set("username", user.email.split("@")[0]);
-
-    } else {
-        // Not logged in → show login/signup
-        storage.set("isLoggedIn", false);
-
-        if (guestAuth) guestAuth.style.display = "flex";
-        if (logoutLink) logoutLink.style.display = "none";
-    }
-});
 
 
 // --- Initialize App ---
