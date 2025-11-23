@@ -3,6 +3,7 @@
    - Normalizes remote/cloud data -> localStorage keys used by script.js
    - Migrates local -> cloud when cloud is empty
    - Wraps storage.set for live sync
+   - Ensures completedAt is preserved and generated when needed
 */
 
 console.log("firebase-wrapper.js loaded");
@@ -40,6 +41,23 @@ function ensureStorageFallback() {
   }
 }
 
+// helper to ensure a todo object has required fields
+function normalizeTodoObject(item) {
+  const baseId = Date.now().toString() + Math.random().toString(36).slice(2,7);
+  const id = item && item.id ? String(item.id) : baseId;
+  const text = (item && (item.text || item.title || item.name)) ? (item.text || item.title || item.name) : "";
+  const completed = !!(item && item.completed);
+  const createdAt = (item && (item.createdAt || item.created_at)) ? (item.createdAt || item.created_at) : new Date().toISOString();
+  let completedAt = null;
+  if (item && (item.completedAt || item.completed_at)) {
+    completedAt = item.completedAt || item.completed_at;
+  } else if (completed) {
+    // if item marked completed but missing completedAt, create one
+    completedAt = new Date().toISOString();
+  }
+  return { id, text, completed, createdAt, completedAt };
+}
+
 // Normalize remote values into the exact keys your script.js expects
 function normalizeRemoteData(raw) {
   // raw is an object read from Firestore (or {})
@@ -53,23 +71,13 @@ function normalizeRemoteData(raw) {
   if (Array.isArray(rawTodos)) {
     normalized.todos = rawTodos.map(item => {
       if (item && typeof item === 'object') {
-        // already proper object - ensure keys exist
-        return {
-          id: item.id ? String(item.id) : Date.now().toString() + Math.random().toString(36).slice(2,7),
-          text: item.text || (item.title || item.name || ""),
-          completed: !!item.completed,
-          createdAt: item.createdAt || item.created_at || new Date().toISOString()
-        };
+        // already proper object - ensure keys exist, including completedAt
+        return normalizeTodoObject(item);
       } else {
         // primitive string -> turn into object
-        return {
-          id: Date.now().toString() + Math.random().toString(36).slice(2,7),
-          text: String(item),
-          completed: false,
-          createdAt: new Date().toISOString()
-        };
+        return normalizeTodoObject({ text: String(item), completed: false });
       }
-    });
+    }).filter(Boolean);
   } else {
     normalized.todos = [];
   }
@@ -184,13 +192,18 @@ function gatherLocalForMigration() {
     // ensure storage exists (again, in case script.js created it later)
     ensureStorageFallback();
     const originalSet = storage.set;
-    // keep existing get behavior
     const originalGet = storage.get;
 
     storage.set = function(key, value) {
       // call original
       try { if (originalSet) originalSet.call(storage, key, value); else localStorage.setItem(key, JSON.stringify(value)); }
       catch(e) { console.warn('storage.set original error', e); }
+
+      // Before syncing to Firestore, normalize some keys to avoid writing broken structures
+      if (key === 'todos' && Array.isArray(value)) {
+        // Ensure every todo has id, createdAt, and completedAt when needed
+        value = value.map(t => normalizeTodoObject(t));
+      }
 
       // Sync to Firestore
       if (docRef) {
