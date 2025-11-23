@@ -322,9 +322,14 @@
       e.preventDefault();
       let email = signinEmail.value;
       let password = signinPassword.value;
-
+    
       try{
         const userCred = await firebase.auth().signInWithEmailAndPassword(email, password);
+    
+        // 🔥 FIX: store login state so index.html knows you're logged in
+        storage.set('isLoggedIn', true);
+        storage.set('username', userCred.user.displayName || userCred.user.email || "User");
+    
         alert("Login successful!");
         window.location.href = "index.html";
       }catch(err){
