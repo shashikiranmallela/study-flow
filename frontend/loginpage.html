@@ -248,12 +248,27 @@
   
   <!-- 🔥 ADD THIS BLOCK -->
   <script>
-  firebase.auth().onAuthStateChanged((user) => {
-      if (user) {
-          window.location.href = "index.html";
-      }
-  });
+  function waitForFirebaseAuthReady() {
+      return new Promise(resolve => {
+          const check = setInterval(() => {
+              if (window.firebaseAuth) {
+                  clearInterval(check);
+                  resolve();
+              }
+          }, 50);
+      });
+  }
+  
+  (async () => {
+      await waitForFirebaseAuthReady();
+      firebase.auth().onAuthStateChanged(user => {
+          if (user) {
+              window.location.href = "index.html";
+          }
+      });
+  })();
   </script>
+
 
 
 
