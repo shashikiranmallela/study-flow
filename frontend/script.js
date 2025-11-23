@@ -1422,6 +1422,27 @@ const setupStreakCalendar = () => {
         renderStreakGrid(streakYear);
     });
 };
+firebase.auth().onAuthStateChanged((user) => {
+    const guestAuth = document.getElementById("guestAuth");
+    const logoutLink = document.getElementById("logoutLink");
+
+    if (user) {
+        // Logged in → hide login/signup
+        storage.set("isLoggedIn", true);
+        if (guestAuth) guestAuth.style.display = "none";
+        if (logoutLink) logoutLink.style.display = "flex";
+
+        // Save email/name
+        storage.set("username", user.email.split("@")[0]);
+
+    } else {
+        // Not logged in → show login/signup
+        storage.set("isLoggedIn", false);
+
+        if (guestAuth) guestAuth.style.display = "flex";
+        if (logoutLink) logoutLink.style.display = "none";
+    }
+});
 
 
 // --- Initialize App ---
