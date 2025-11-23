@@ -64,25 +64,31 @@ const showToast = (message, duration = 3000) => {
 
 const updateAuthUI = () => {
   try {
-    const isLoggedIn = storage.get('isLoggedIn', false);
+    const user = firebase.auth().currentUser;
+
     const guestAuth = document.getElementById('guestAuth');
     const logoutLink = document.getElementById('logoutLink');
     const usernameSpan = document.getElementById('username');
 
-    const savedName = storage.get('username', 'User');
-    if (usernameSpan) usernameSpan.textContent = savedName;
-
-    if (isLoggedIn) {
+    if (user) {
+      // Logged in
       if (guestAuth) guestAuth.style.display = 'none';
       if (logoutLink) logoutLink.style.display = 'flex';
+
+      const savedName = storage.get('username', user.email.split("@")[0]);
+      if (usernameSpan) usernameSpan.textContent = savedName;
+
     } else {
+      // Logged out
       if (guestAuth) guestAuth.style.display = 'flex';
       if (logoutLink) logoutLink.style.display = 'none';
     }
+
   } catch (error) {
     console.error('Error updating auth UI:', error);
   }
 };
+
 
 const removeStorage = (key) => {
     localStorage.removeItem(key);
