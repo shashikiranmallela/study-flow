@@ -1,3 +1,20 @@
+async function waitForFirestoreData() {
+  return new Promise(res => {
+    if (window.__firestoreDataLoaded) return res();
+    const t = setInterval(() => {
+      if (window.__firestoreDataLoaded) {
+        clearInterval(t);
+        res();
+      }
+    }, 50);
+  });
+}
+
+(async () => {
+  await waitForFirestoreData();
+  console.log("🔥 Cloud data loaded, starting app...");
+})();
+
 // Utility Functions
 const formatTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
