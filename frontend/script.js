@@ -1481,19 +1481,29 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutLink.addEventListener('click', async (e) => {
         e.preventDefault();
     
-        // Clear ALL stored UI data
+        // Clear ALL StudyFlow data from localStorage
         localStorage.clear();
+        storage.set('todos', []);
+        storage.set('routine', []);
+        storage.set('timeSessions', []);
+        storage.set('timerState', {
+            seconds: 0, 
+            isRunning: false, 
+            isBreak: false, 
+            currentTask: '', 
+            startTime: null
+        });
+        storage.set('isLoggedIn', false);
     
         // Firebase logout
-        if (window.firebaseAuth) {
-            await window.firebaseAuth.signOut();
-        }
+        await firebase.auth().signOut();
     
         showToast('Logged out successfully!');
     
-        // Reload page to re-initialize in guest mode
+        // Reload for guest fresh UI
         location.reload();
     });
+
 
     // -------------------------------------------------------------------
 
