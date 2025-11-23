@@ -245,6 +245,16 @@
   <script src="firebase-init.js"></script>
   <script src="firebase-wrapper.js"></script>
   <script src="script.js"></script>
+  
+  <!-- 🔥 ADD THIS BLOCK -->
+  <script>
+  firebase.auth().onAuthStateChanged((user) => {
+      if (user) {
+          window.location.href = "index.html";
+      }
+  });
+  </script>
+
 
 
 
