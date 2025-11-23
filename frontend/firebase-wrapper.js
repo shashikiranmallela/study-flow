@@ -2,7 +2,8 @@
    Provides storage.get/set that sync to Firestore.
    Include AFTER firebase-init.js and BEFORE your script.js in index.html.
 */
-// Wait until firebase is initialized
+
+// Wait until firebase is fully initialized
 function waitForFirebase() {
   return new Promise((resolve) => {
     if (window.firebaseReady) return resolve();
@@ -18,8 +19,6 @@ function waitForFirebase() {
 (async () => {
   await waitForFirebase();
   console.log("Firebase ready!");
-
-  // your existing wrapper code here
 })();
 
 const backendUrl = "https://study-flow-ea7b.onrender.com";
@@ -29,32 +28,48 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
   let firestoreCache = {};
   let isSyncing = false;
 
-  // Initialize auth listener
-  if (window.firebaseAuth) {
-    window.firebaseAuth.onAuthStateChanged(async (user) => {
-      currentUser = user;
-      if (user) {
-        await loadUserDataFromFirestore();
-        if (typeof window.updateAuthUI === 'function') {
-          window.updateAuthUI();
-        }
-      } else {
-        firestoreCache = {};
-        if (typeof window.updateAuthUI === 'function') {
-          window.updateAuthUI();
-        }
-      }
-    });
-  }
+  // Auth listener
+  firebase.auth().onAuthStateChanged(async (user) => {
+    currentUser = user;
 
-  // Load all user data from Firestore
+    const path = window.location.pathname.toLowerCase();
+
+    if (user) {
+        // Redirect logged-in users AWAY from loginpage
+        if (path.includes("loginpage.html")) {
+            window.location.href = "index.html";
+        }
+
+        // Load user data
+        await loadUserDataFromFirestore();
+
+        if (typeof window.updateAuthUI === 'function') {
+            window.updateAuthUI();
+        }
+
+    } else {
+        // Redirect NON-logged users AWAY from dashboard
+        if (path.includes("index.html")) {
+            window.location.href = "loginpage.html";
+        }
+
+        firestoreCache = {};
+
+        if (typeof window.updateAuthUI === 'function') {
+            window.updateAuthUI();
+        }
+    }
+  });
+
+  // Load user data from backend
   async function loadUserDataFromFirestore() {
     if (!currentUser) return;
     
     try {
-      const response = await fetch('${backendUrl}/api/user/data', {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${backendUrl}/api/user/data`, {
         headers: {
-          'Authorization': `Bearer ${await currentUser.getIdToken()}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -63,15 +78,14 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
         return;
       }
 
-      const data = await response.json();
-      firestoreCache = data;
+      firestoreCache = await response.json();
       console.log('User data loaded from Firestore');
     } catch (error) {
       console.error('Error loading user data from Firestore:', error);
     }
   }
 
-  // Sync data to Firestore
+  // Sync to Firestore
   async function syncToFirestore(key, value) {
     if (!currentUser) {
       console.warn('User not authenticated, cannot sync to Firestore');
@@ -82,12 +96,14 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
     isSyncing = true;
 
     try {
+      const token = await currentUser.getIdToken();
       const payload = { [key]: value };
-      const response = await fetch('/api/user/data', {
+
+      const response = await fetch(`${backendUrl}/api/user/data`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await currentUser.getIdToken()}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
@@ -97,6 +113,7 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
       } else {
         console.log(`Synced ${key} to Firestore`);
       }
+
     } catch (error) {
       console.error('Error syncing to Firestore:', error);
     } finally {
@@ -104,7 +121,7 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
     }
   }
 
-  // Storage API
+  // Storage
   window.storage = {
     get: function(key, defaultValue = null) {
       try {
@@ -121,7 +138,6 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
     set: function(key, value) {
       try {
         firestoreCache[key] = value;
-        
         if (currentUser) {
           syncToFirestore(key, value);
         } else {
@@ -135,3 +151,4 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
 
   console.log('Firebase wrapper initialized');
 })();
+
