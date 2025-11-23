@@ -1,6 +1,8 @@
-async function waitForFirestoreData() {
+// CLOUD LOADER — waits for firebase-wrapper
+function waitForFirestoreData() {
   return new Promise(res => {
     if (window.__firestoreDataLoaded) return res();
+
     const t = setInterval(() => {
       if (window.__firestoreDataLoaded) {
         clearInterval(t);
@@ -10,10 +12,16 @@ async function waitForFirestoreData() {
   });
 }
 
-(async () => {
-  await waitForFirestoreData();
-  console.log("🔥 Cloud data loaded, starting app...");
+(async function () {
+  const loader = document.getElementById('loadingScreen');
+  loader.style.display = "flex";  // show loader
+
+  await waitForFirestoreData();   // wait for firebase sync
+
+  loader.style.display = "none";  // hide loader
+  console.log("🔥 Firebase synced — starting StudyFlow");
 })();
+
 
 // Utility Functions
 const formatTime = (seconds) => {
