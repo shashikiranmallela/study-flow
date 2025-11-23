@@ -2,6 +2,26 @@
    Provides storage.get/set that sync to Firestore.
    Include AFTER firebase-init.js and BEFORE your script.js in index.html.
 */
+// Wait until firebase is initialized
+function waitForFirebase() {
+  return new Promise((resolve) => {
+    if (window.firebaseReady) return resolve();
+    const check = setInterval(() => {
+      if (window.firebaseReady) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 50);
+  });
+}
+
+(async () => {
+  await waitForFirebase();
+  console.log("Firebase ready!");
+
+  // your existing wrapper code here
+})();
+
 const backendUrl = "https://study-flow-ea7b.onrender.com";
 
 (function(){
