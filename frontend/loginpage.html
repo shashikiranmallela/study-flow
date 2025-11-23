@@ -276,26 +276,35 @@
       let password = signUpPassword.value;
       let confirm = confirmSignUpPassword.value;
       let username = signupUsername.value.trim();
-
+    
       if(!username) {
         showError('Username is required');
         return;
       }
-
+    
       if(password !== confirm){
         passwordError.style.display = "block";
         passwordError.textContent = "Passwords do not match!";
         return;
       }
       passwordError.style.display = "none";
-
+    
       try{
         const userCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
-        
-        // Initialize user in Firestore
+    
+        // 🔥 FIRST: update Firebase displayName
+        await userCred.user.updateProfile({
+          displayName: username
+        });
+    
+        // 🔥 Save login state so index shows LOGOUT
+        storage.set('isLoggedIn', true);
+        storage.set('username', username);
+    
+        // Initialize user in backend (Firestore)
         const backendUrl = "https://study-flow-ea7b.onrender.com";
-
-        const response = await fetch(`${backendUrl}/api/user/init`, {
+    
+        await fetch(`${backendUrl}/api/user/init`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -304,18 +313,16 @@
             username: username
           })
         });
-
-        if (!response.ok) {
-          throw new Error('Failed to initialize user data');
-        }
-
+    
         alert("Account created!");
-        enterLogin();
+        window.location.href = "index.html";
+    
       }catch(err){
         console.error('Signup error:', err);
         showError(err.message || 'Signup failed');
       }
     };
+
 
     // LOGIN
     document.getElementById('signInForm').onsubmit = async(e)=>{
