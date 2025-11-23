@@ -1,26 +1,29 @@
-/* CLEAN & SAFE FIREBASE WRAPPER
-   - Waits for firebaseReady safely
-   - Wraps localStorage only AFTER Firebase + Auth is ready
-   - Syncs user data to Firestore
-   - Prevents race conditions & “No Firebase App” errors
+/* CLEAN WORKING FIREBASE WRAPPER
+   - Cloud sync (Firestore)
+   - Load user data BEFORE script.js initializes
+   - Prevents “No Firebase App” and race conditions
+   - Works on multiple devices (same login → same data)
 */
 
 console.log("firebase-wrapper.js loaded");
 
+// Tell script.js to wait until cloud data is loaded
+window.__firestoreDataLoaded = false;
+
+// Helper: wait for firebase-init.js to finish
 function waitForFirebase() {
-  return new Promise(res => {
-    if (window.firebaseReady) return res();
+  return new Promise((resolve) => {
+    if (window.firebaseReady) return resolve();
     const t = setInterval(() => {
       if (window.firebaseReady) {
         clearInterval(t);
-        res();
+        resolve();
       }
     }, 50);
   });
 }
 
 (async () => {
-  // Wait for Firebase initialization from firebase-init.js
   await waitForFirebase();
   console.log("firebase-wrapper: Firebase is ready");
 
@@ -30,6 +33,7 @@ function waitForFirebase() {
   let currentUser = null;
   let docRef = null;
 
+  // Keys your app uses
   const SYNC_KEYS = [
     "todos",
     "routine",
@@ -38,12 +42,40 @@ function waitForFirebase() {
     "currentStatsPeriod",
     "username",
     "isLoggedIn",
-    "theme",
+    "theme"
   ];
 
-  // Wrap storage after script.js has executed
+  // ---- Load Firestore Data → localStorage ----
+  async function loadUserData(uid) {
+    docRef = db.collection("users").doc(uid);
+
+    const snap = await docRef.get();
+
+    if (snap.exists) {
+      const data = snap.data();
+
+      console.log("firebase-wrapper: Firestore data:", data);
+
+      // Write cloud data → localStorage
+      for (let key in data) {
+        localStorage.setItem(key, JSON.stringify(data[key]));
+      }
+      console.log("firebase-wrapper: Remote → LocalStorage applied");
+    } else {
+      console.log("firebase-wrapper: No data, creating empty doc");
+      await docRef.set({}, { merge: true });
+    }
+
+    // Tell script.js that cloud sync is complete
+    window.__firestoreDataLoaded = true;
+  }
+
+  // ---- Wrap localStorage sync ----
   function wrapStorage() {
-    if (!window.storage) return console.error("storage object missing!");
+    if (!window.storage) {
+      console.error("storage object missing!");
+      return;
+    }
 
     const originalSet = storage.set;
     const originalGet = storage.get;
@@ -61,24 +93,7 @@ function waitForFirebase() {
     console.log("firebase-wrapper: storage wrapped successfully");
   }
 
-  // Load Firestore user data back into localStorage
-  async function loadUserData(uid) {
-    docRef = db.collection("users").doc(uid);
-
-    const snap = await docRef.get();
-    if (snap.exists) {
-      const data = snap.data();
-      for (let key in data) {
-        localStorage.setItem(key, JSON.stringify(data[key]));
-      }
-      console.log("firebase-wrapper: loaded remote data -> localStorage");
-    } else {
-      console.log("firebase-wrapper: new user, creating empty doc");
-      await docRef.set({}, { merge: true });
-    }
-  }
-
-  // Listen to login/logout
+  // ---- Listen for login state ----
   auth.onAuthStateChanged(async (user) => {
     if (!user) {
       console.log("firebase-wrapper: user logged out");
@@ -89,12 +104,12 @@ function waitForFirebase() {
     currentUser = user;
     console.log("firebase-wrapper: user logged in:", user.uid);
 
-    // Load Firestore → localStorage
+    // Load user data from cloud
     await loadUserData(user.uid);
 
-    // Now wrap storage & enable syncing
+    // Wrap storage after data is loaded
     wrapStorage();
   });
 
-  console.log("firebase-wrapper: fully initialized");
+  console.log("firebase-wrapper: Fully initialized");
 })();
