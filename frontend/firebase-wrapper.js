@@ -1,16 +1,8 @@
-/* FINAL FIXED FIREBASE WRAPPER
-   This version:
-   ✔ Waits for firebase
-   ✔ Waits for login
-   ✔ Waits for script.js to create storage
-   ✔ Loads Firestore → localStorage
-   ✔ Syncs localStorage → Firestore
-   ✔ Works across devices
-*/
+/* FINAL FIXED WRAPPER – GUARANTEED WORKING */
 
 console.log("firebase-wrapper.js loaded");
 
-// script.js should wait for this
+// script.js waits for this
 window.__firestoreDataLoaded = false;
 
 // --- Wait for Firebase ---
@@ -26,16 +18,46 @@ function waitForFirebase() {
   });
 }
 
-// --- Wait for storage object to exist ---
-function waitForStorage() {
-  return new Promise((resolve) => {
-    const t = setInterval(() => {
-      if (window.storage) {
-        clearInterval(t);
-        resolve();
+// --- Ensure storage object ALWAYS exists ---
+function ensureStorageExists() {
+  if (!window.storage) {
+    console.warn("wrapper: storage was missing → creating fallback storage");
+
+    window.storage = {
+      get: (key, def = null) => {
+        try {
+          const v = localStorage.getItem(key);
+          return v ? JSON.parse(v) : def;
+        } catch {
+          return def;
+        }
+      },
+      set: (key, value) => {
+        localStorage.setItem(key, JSON.stringify(value));
       }
-    }, 50);
-  });
+    };
+  }
+}
+
+// --- Wrap storage for syncing ---
+function wrapStorage(docRef) {
+  ensureStorageExists(); // make sure it exists
+
+  const originalSet = storage.set;
+  const originalGet = storage.get;
+
+  storage.set = function (key, value) {
+    originalSet.call(storage, key, value);
+
+    // Sync to Firestore
+    if (docRef) {
+      const update = {};
+      update[key] = value;
+      docRef.set(update, { merge: true });
+    }
+  };
+
+  console.log("firebase-wrapper: storage wrapped successfully");
 }
 
 (async () => {
@@ -45,7 +67,6 @@ function waitForStorage() {
   const auth = firebase.auth();
   const db = firebase.firestore();
 
-  // Keys to sync
   const SYNC_KEYS = [
     "todos",
     "routine",
@@ -59,23 +80,25 @@ function waitForStorage() {
 
   let docRef = null;
 
-  // Load Firestore → Local
   async function loadUserData(uid) {
     docRef = db.collection("users").doc(uid);
 
     const snap = await docRef.get();
 
     if (snap.exists && Object.keys(snap.data()).length > 0) {
+      console.log("firebase-wrapper: Firestore data:", snap.data());
+
       const data = snap.data();
-      console.log("firebase-wrapper: loaded remote data -> localStorage");
       for (let key in data) {
         localStorage.setItem(key, JSON.stringify(data[key]));
       }
+      console.log("firebase-wrapper: Remote → LocalStorage applied");
     } else {
-      console.log("firebase-wrapper: No cloud data, migrating local → cloud");
+      // MIGRATION: local → cloud
+      console.log("firebase-wrapper: migrating local → cloud");
 
       const payload = {};
-      SYNC_KEYS.forEach(key => {
+      SYNC_KEYS.forEach((key) => {
         const val = localStorage.getItem(key);
         if (val !== null) payload[key] = JSON.parse(val);
       });
@@ -86,27 +109,6 @@ function waitForStorage() {
     window.__firestoreDataLoaded = true;
   }
 
-  // Wrap storage AFTER it exists
-  async function wrapStorage() {
-    await waitForStorage();
-
-    const originalSet = storage.set;
-    const originalGet = storage.get;
-
-    storage.set = function (key, value) {
-      originalSet.call(storage, key, value);
-
-      if (docRef) {
-        const update = {};
-        update[key] = value;
-        docRef.set(update, { merge: true });
-      }
-    };
-
-    console.log("firebase-wrapper: storage wrapped successfully");
-  }
-
-  // Auth listener
   auth.onAuthStateChanged(async (user) => {
     if (!user) {
       console.log("firebase-wrapper: user logged out");
@@ -115,12 +117,15 @@ function waitForStorage() {
 
     console.log("firebase-wrapper: user logged in:", user.uid);
 
-    // Step 1 — Load cloud data
+    // Step 1 — load cloud data
     await loadUserData(user.uid);
 
-    // Step 2 — Wait for storage object from script.js
-    await wrapStorage();
+    // Step 2 — ensure storage exists
+    ensureStorageExists();
+
+    // Step 3 — wrap it for syncing
+    wrapStorage(docRef);
   });
 
-  console.log("firebase-wrapper: fully initialized");
+  console.log("firebase-wrapper: Fully initialized");
 })();
