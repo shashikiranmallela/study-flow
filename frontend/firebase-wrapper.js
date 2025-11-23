@@ -1,9 +1,8 @@
 /* firebase-wrapper.js
-   Provides storage.get/set that sync to Firestore.
-   Include AFTER firebase-init.js and BEFORE your script.js in index.html.
+   Handles Firestore syncing and authentication redirects, safely.
 */
 
-// Wait until firebase is fully initialized
+// Wait until firebase is fully initialized by firebase-init.js
 function waitForFirebase() {
   return new Promise((resolve) => {
     if (window.firebaseReady) return resolve();
@@ -20,131 +19,128 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
 
 (async () => {
   await waitForFirebase();
-  console.log("Firebase ready!");
+  console.log("🔥 Firebase ready!");
 
   let currentUser = null;
-  let firestoreCache = {};
+  let cache = {};
   let isSyncing = false;
 
-  // --- AUTH STATE LISTENER ---
+  // -----------------------------
+  // SINGLE AUTH LISTENER 🔥 FIXED
+  // -----------------------------
   firebase.auth().onAuthStateChanged(async (user) => {
     currentUser = user;
     const path = window.location.pathname.toLowerCase();
 
     if (user) {
-      // Redirect logged in users away from login page
+      // ✔ Logged in
+      console.log("User logged in:", user.uid);
+
+      // Redirect AWAY from loginpage.html
       if (path.includes("loginpage.html")) {
         window.location.href = "index.html";
         return;
       }
 
       // Load user data
-      await loadUserDataFromFirestore();
+      await loadUserData();
 
-      if (typeof window.updateAuthUI === 'function') {
+      // Update UI (if exist)
+      if (typeof window.updateAuthUI === "function") {
         window.updateAuthUI();
       }
 
     } else {
-      // Redirect non-logged users away from index
+      // ❌ Not logged in
+      console.log("No user logged in");
+
+      cache = {}; // clear cache
+
+      // Redirect AWAY from dashboard to login
       if (path.includes("index.html")) {
         window.location.href = "loginpage.html";
         return;
       }
 
-      firestoreCache = {};
-
-      if (typeof window.updateAuthUI === 'function') {
+      if (typeof window.updateAuthUI === "function") {
         window.updateAuthUI();
       }
     }
   });
 
-  // --- LOAD USER DATA ---
-  async function loadUserDataFromFirestore() {
+  // -----------------------------
+  // LOAD USER DATA SAFELY
+  // -----------------------------
+  async function loadUserData() {
     if (!currentUser) return;
 
     try {
       const token = await currentUser.getIdToken();
+
       const response = await fetch(`${backendUrl}/api/user/data`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (!response.ok) {
-        console.error('Failed to load user data:', response.statusText);
-        return;
-      }
+      // 🔥 IMPORTANT FIX:
+      // backend ALWAYS returns {} instead of error
+      const data = await response.json();
+      cache = data || {};
 
-      firestoreCache = await response.json();
-      console.log('User data loaded from Firestore');
-    } catch (error) {
-      console.error('Error loading user data from Firestore:', error);
+      console.log("User data loaded:", cache);
+
+    } catch (e) {
+      console.error("Error loading user data:", e);
+      // DO NOT redirect — prevents 5-sec loop
     }
   }
 
-  // --- SYNC DATA TO BACKEND ---
-  async function syncToFirestore(key, value) {
-    if (!currentUser) {
-      console.warn('User not authenticated, cannot sync to Firestore');
-      return;
-    }
+  // -----------------------------
+  // SYNC USER DATA
+  // -----------------------------
+  async function sync(key, value) {
+    if (!currentUser) return console.warn("Not logged in, cannot sync");
 
     if (isSyncing) return;
     isSyncing = true;
 
     try {
       const token = await currentUser.getIdToken();
-      const payload = { [key]: value };
 
-      const response = await fetch(`${backendUrl}/api/user/data`, {
-        method: 'POST',
+      const payload = { [key]: value };
+      await fetch(`${backendUrl}/api/user/data`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) {
-        console.error('Failed to sync data:', response.statusText);
-      } else {
-        console.log(`Synced ${key} successfully`);
-      }
-    } catch (error) {
-      console.error('Error syncing to Firestore:', error);
+      console.log("Synced", key);
+
+    } catch (e) {
+      console.error("Error syncing:", e);
     } finally {
       isSyncing = false;
     }
   }
 
-  // --- STORAGE API ---
+  // -----------------------------
+  // STORAGE API (used by script.js)
+  // -----------------------------
   window.storage = {
-    get: function(key, defaultValue = null) {
-      try {
-        if (currentUser && firestoreCache.hasOwnProperty(key)) {
-          return firestoreCache[key];
-        }
-        return defaultValue;
-      } catch (err) {
-        console.error('storage.get error:', err);
-        return defaultValue;
-      }
+    get: (key, defaultValue = null) => {
+      return cache.hasOwnProperty(key) ? cache[key] : defaultValue;
     },
-    set: function(key, value) {
-      try {
-        firestoreCache[key] = value;
-        if (currentUser) {
-          syncToFirestore(key, value);
-        } else {
-          console.warn('User not authenticated, data not saved');
-        }
-      } catch (err) {
-        console.error('storage.set error:', err);
-      }
+    set: (key, value) => {
+      cache[key] = value;
+      if (currentUser) sync(key, value);
     }
   };
+
+  console.log("🔥 firebase-wrapper.js fully initialized");
+})();
+
 
   console.log("Firebase wrapper initialized");
 })();
