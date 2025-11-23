@@ -281,7 +281,12 @@ const updateDashboard = () => {
 };
 
 // --- Todo List ---
-let todos = storage.get('todos', []);
+let todos = [];
+window.addEventListener("cloud-sync-ready", () => {
+    todos = storage.get("todos", []);
+    renderTasks();
+});
+
 
 const renderTasks = () => {
     const activeTodosList = document.getElementById('activeTodos');
