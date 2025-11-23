@@ -16,55 +16,54 @@ function waitForFirebase() {
   });
 }
 
+const backendUrl = "https://study-flow-ea7b.onrender.com";
+
 (async () => {
   await waitForFirebase();
   console.log("Firebase ready!");
-})();
 
-const backendUrl = "https://study-flow-ea7b.onrender.com";
-
-(function(){
   let currentUser = null;
   let firestoreCache = {};
   let isSyncing = false;
 
-  // Auth listener
+  // --- AUTH STATE LISTENER ---
   firebase.auth().onAuthStateChanged(async (user) => {
     currentUser = user;
-
     const path = window.location.pathname.toLowerCase();
 
     if (user) {
-        // Redirect logged-in users AWAY from loginpage
-        if (path.includes("loginpage.html")) {
-            window.location.href = "index.html";
-        }
+      // Redirect logged in users away from login page
+      if (path.includes("loginpage.html")) {
+        window.location.href = "index.html";
+        return;
+      }
 
-        // Load user data
-        await loadUserDataFromFirestore();
+      // Load user data
+      await loadUserDataFromFirestore();
 
-        if (typeof window.updateAuthUI === 'function') {
-            window.updateAuthUI();
-        }
+      if (typeof window.updateAuthUI === 'function') {
+        window.updateAuthUI();
+      }
 
     } else {
-        // Redirect NON-logged users AWAY from dashboard
-        if (path.includes("index.html")) {
-            window.location.href = "loginpage.html";
-        }
+      // Redirect non-logged users away from index
+      if (path.includes("index.html")) {
+        window.location.href = "loginpage.html";
+        return;
+      }
 
-        firestoreCache = {};
+      firestoreCache = {};
 
-        if (typeof window.updateAuthUI === 'function') {
-            window.updateAuthUI();
-        }
+      if (typeof window.updateAuthUI === 'function') {
+        window.updateAuthUI();
+      }
     }
   });
 
-  // Load user data from backend
+  // --- LOAD USER DATA ---
   async function loadUserDataFromFirestore() {
     if (!currentUser) return;
-    
+
     try {
       const token = await currentUser.getIdToken();
       const response = await fetch(`${backendUrl}/api/user/data`, {
@@ -85,7 +84,7 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
     }
   }
 
-  // Sync to Firestore
+  // --- SYNC DATA TO BACKEND ---
   async function syncToFirestore(key, value) {
     if (!currentUser) {
       console.warn('User not authenticated, cannot sync to Firestore');
@@ -109,11 +108,10 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
       });
 
       if (!response.ok) {
-        console.error('Failed to sync data to Firestore:', response.statusText);
+        console.error('Failed to sync data:', response.statusText);
       } else {
-        console.log(`Synced ${key} to Firestore`);
+        console.log(`Synced ${key} successfully`);
       }
-
     } catch (error) {
       console.error('Error syncing to Firestore:', error);
     } finally {
@@ -121,7 +119,7 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
     }
   }
 
-  // Storage
+  // --- STORAGE API ---
   window.storage = {
     get: function(key, defaultValue = null) {
       try {
@@ -134,14 +132,13 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
         return defaultValue;
       }
     },
-
     set: function(key, value) {
       try {
         firestoreCache[key] = value;
         if (currentUser) {
           syncToFirestore(key, value);
         } else {
-          console.warn('User not authenticated, data not saved to Firestore');
+          console.warn('User not authenticated, data not saved');
         }
       } catch (err) {
         console.error('storage.set error:', err);
@@ -149,6 +146,7 @@ const backendUrl = "https://study-flow-ea7b.onrender.com";
     }
   };
 
-  console.log('Firebase wrapper initialized');
+  console.log("Firebase wrapper initialized");
 })();
+
 
