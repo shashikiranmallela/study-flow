@@ -1,85 +1,16 @@
-// Put page into loading state immediately
-document.documentElement.classList.add('loading');
-
-// Helper: hide loading UI when ready
-function markAppReady() {
-  const loadingScreen = document.getElementById('loadingScreen');
-  if (loadingScreen) loadingScreen.classList.add('hide');
-  document.documentElement.classList.remove('loading');
-}
-
-// Wait for both firebaseReady and firestore data loaded
-function waitForAppReady() {
-  return new Promise((resolve) => {
-    const check = () => {
-      // prefer your flag __firestoreDataLoaded and firebaseReady
-      if ((window.__firestoreDataLoaded || false) && (window.firebaseReady || false)) {
-        resolve();
-      }
-    };
-
-    // if wrapper dispatches a custom event "cloud-sync-ready" you added:
-    document.addEventListener('cloud-sync-ready', () => {
-      check();
-    });
-
-    // Also check on auth change (defensive)
-    if (window.firebase && firebase.auth) {
-      firebase.auth().onAuthStateChanged(() => {
-        check();
-      });
-    }
-
-    // fallback polling (safety) - stop after 12s
-    const t = setInterval(() => {
-      check();
-      if ((window.__firestoreDataLoaded || false) && (window.firebaseReady || false)) {
-        clearInterval(t);
-      }
-    }, 200);
-
-    setTimeout(() => { clearInterval(t); resolve(); }, 12000);
-  });
-}
-
-// call this after DOMContentLoaded to remove loading screen and continue app init
-document.addEventListener('DOMContentLoaded', async () => {
-  await waitForAppReady();
-  markAppReady();
-
-  // Now safe to call your existing init (if you have startApp or navigateTo)
-  if (typeof startApp === 'function') startApp();
-  else {
-    // keep existing behaviour: navigateTo dashboard used at end of file
-    if (typeof navigateTo === 'function') navigateTo('dashboard');
-    // also update auth UI
-    try { updateAuthUI(); } catch(e) {}
-  }
+// Wait until cloud sync + firebase init
+document.addEventListener("cloud-sync-ready", () => {
+    console.log("🔥 Cloud Sync Ready! Starting StudyFlow...");
+    document.documentElement.classList.remove("loading");
+    startAppAfterSync();
 });
 
-// CLOUD LOADER — waits for firebase-wrapper
-function waitForFirestoreData() {
-  return new Promise(res => {
-    if (window.__firestoreDataLoaded) return res();
-
-    const t = setInterval(() => {
-      if (window.__firestoreDataLoaded) {
-        clearInterval(t);
-        res();
-      }
-    }, 50);
-  });
+function startAppAfterSync() {
+    updateAuthUI();
+    navigateTo("dashboard");
+    renderTasks();
+    updateDashboard();
 }
-
-(async function () {
-  const loader = document.getElementById('loadingScreen');
-  loader.style.display = "flex";  // show loader
-
-  await waitForFirestoreData();   // wait for firebase sync
-
-  loader.style.display = "none";  // hide loader
-  console.log("🔥 Firebase synced — starting StudyFlow");
-})();
 
 
 // Utility Functions
@@ -1536,41 +1467,15 @@ const setupStreakCalendar = () => {
 
 // --- Initialize App ---
 document.addEventListener('DOMContentLoaded', () => {
-    updateAuthUI();                     // <-- initialise UI
-    // If we just came back from loginpage.html, localStorage may have changed
-    if (performance.navigation.type === 1) {   // reload
-        updateAuthUI();
-    }
+    updateAuthUI();
 
     const logoutLink = document.getElementById('logoutLink');
     logoutLink.addEventListener('click', async (e) => {
         e.preventDefault();
-    
-        // Clear ALL StudyFlow data from localStorage
         localStorage.clear();
-        storage.set('todos', []);
-        storage.set('routine', []);
-        storage.set('timeSessions', []);
-        storage.set('timerState', {
-            seconds: 0, 
-            isRunning: false, 
-            isBreak: false, 
-            currentTask: '', 
-            startTime: null
-        });
-        storage.set('isLoggedIn', false);
-    
-        // Firebase logout
         await firebase.auth().signOut();
-    
-        showToast('Logged out successfully!');
-    
-        // Reload for guest fresh UI
         location.reload();
     });
-
-
-    // -------------------------------------------------------------------
 
     navigateTo('dashboard');
 });
