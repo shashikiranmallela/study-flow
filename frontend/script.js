@@ -56,20 +56,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // proceed with your existing initialization (navigateTo('dashboard') etc.)
 });
 
-// Wait until cloud sync + firebase init
-document.addEventListener("cloud-sync-ready", () => {
-    console.log("🔥 Cloud Sync Ready! Starting StudyFlow...");
-    document.documentElement.classList.remove("loading");
-    startAppAfterSync();
-});
-
-function startAppAfterSync() {
-    updateAuthUI();
-    navigateTo("dashboard");
-    renderTasks();
-    updateDashboard();
-}
-
 
 // Utility Functions
 const formatTime = (seconds) => {
