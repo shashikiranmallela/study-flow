@@ -116,20 +116,7 @@ const updateAuthUI = () => {
 const removeStorage = (key) => {
     localStorage.removeItem(key);
 };
-// Local Storage
-const storage = {
-    get: (key, defaultValue = null) => {
-        try {
-            const item = localStorage.getItem(key);
-            return item ? JSON.parse(item) : defaultValue;
-        } catch {
-            return defaultValue;
-        }
-    },
-    set: (key, value) => {
-        localStorage.setItem(key, JSON.stringify(value));
-    }
-};
+
 
 
 // --- App State ---
@@ -296,11 +283,15 @@ const updateDashboard = () => {
 };
 
 // --- Todo List ---
-let todos = [];
+let todos = storage.get("todos", []) || [];
+
 window.addEventListener("cloud-sync-ready", () => {
-    todos = storage.get("todos", []);
+    todos = storage.get("todos", []) || [];
     renderTasks();
+    updateDashboard();
 });
+
+
 
 
 const renderTasks = () => {
@@ -311,8 +302,17 @@ const renderTasks = () => {
     
     const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     
-    todos = todos.filter(t => !t.completed || (t.completedAt && new Date(t.completedAt).getTime() > oneWeekAgo));
-    storage.set('todos', todos);
+    if (!Array.isArray(todos)) return;
+
+    todos = todos.filter(t => {
+        if (!t) return false;
+        if (!t.completed) return true;
+        if (!t.completedAt) return false;
+        return new Date(t.completedAt).getTime() > oneWeekAgo;
+    });
+    
+    storage.set("todos", todos); // safe sync
+
     
     const activeTodos = todos.filter(t => !t.completed);
     const completedTodos = todos.filter(t => t.completed);
@@ -332,7 +332,7 @@ const renderTasks = () => {
 
 const createTaskElement = (todo) => {
     return `
-        <li class="task-item ${todo.completed ? 'completed' : ''}" data-id="${todo.id}">
+        <li class="task-item ${todo.completed ? 'completed' : ''}" data-id="${todo.id || ''}">
             <input type="checkbox" class="task-checkbox" ${todo.completed ? 'checked' : ''} data-id="${todo.id}">
             <span class="task-text">${todo.text}</span>
             <div class="task-actions">
@@ -363,7 +363,7 @@ const handleEditTask = (taskId) => {
 
     const saveEdit = () => {
         const newText = input.value.trim();
-        const todo = todos.find(t => t.id === taskId);
+        const todo = todos.find(t => t && t.id === taskId);
         if (todo && newText) {
             todo.text = newText;
             storage.set('todos', todos);
@@ -425,7 +425,7 @@ const addEventListenersForTasks = (containerSelector) => {
     container.querySelectorAll('.task-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
             const todoId = e.target.dataset.id;
-            const todoItem = todos.find(t => t.id === todoId);
+            const todoItem = todos.find(t => t && t.id === todoId);
             if (todoItem) {
                 todoItem.completed = e.target.checked;
                 todoItem.completedAt = e.target.checked ? (todoItem.completedAt || new Date().toISOString()) : null;
@@ -1069,7 +1069,8 @@ const renderTimeBySubject = () => {
 };
 
 const renderRecentCompletedTasks = () => {
-    const recentCompleted = todos.filter(t => t.completed)
+    if (!Array.isArray(todos)) return;
+    const recentCompleted = todos.filter(t => t && t.completed)
         .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 5);
     const container = document.getElementById('recentCompletedTasks');
     if (recentCompleted.length === 0) {
