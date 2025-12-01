@@ -17,6 +17,8 @@
     firebase.initializeApp(firebaseConfig);
     window.firebaseAuth = firebase.auth();
     window.firestore = firebase.firestore();
+    window.firebaseReady = true;
+
 
     console.log('Firebase initialized successfully');
 
