@@ -1,3 +1,61 @@
+// Put page into loading state immediately
+document.documentElement.classList.add('loading');
+const loadingScreenEl = document.getElementById('loadingScreen');
+if (loadingScreenEl) loadingScreenEl.style.display = 'flex';
+
+// Helper: hide loading UI when ready
+function markAppReady() {
+  const loader = document.getElementById('loadingScreen');
+  if (loader) {
+    loader.style.display = 'none';
+    loader.classList.add('hide');
+  }
+  document.documentElement.classList.remove('loading');
+}
+
+// Wait for both firebaseReady and firestore data loaded
+function waitForAppReady(timeoutMs = 12000) {
+  return new Promise((resolve) => {
+    const check = () => {
+      if ((window.__firestoreDataLoaded || false) && (window.firebaseReady || false)) {
+        resolve();
+      }
+    };
+
+    // Listen for wrapper notification
+    document.addEventListener('cloud-sync-ready', () => {
+      check();
+    });
+
+    // Defensive auth change check
+    if (window.firebase && firebase.auth) {
+      firebase.auth().onAuthStateChanged(() => {
+        check();
+      });
+    }
+
+    // Polling safety
+    const t = setInterval(() => {
+      check();
+      if ((window.__firestoreDataLoaded || false) && (window.firebaseReady || false)) {
+        clearInterval(t);
+      }
+    }, 200);
+
+    setTimeout(() => {
+      clearInterval(t);
+      resolve();
+    }, timeoutMs);
+  });
+}
+
+// Call it right after DOMContentLoaded (you already have an event listener later which is fine)
+document.addEventListener('DOMContentLoaded', async () => {
+  await waitForAppReady();
+  markAppReady();
+  // proceed with your existing initialization (navigateTo('dashboard') etc.)
+});
+
 // Wait until cloud sync + firebase init
 document.addEventListener("cloud-sync-ready", () => {
     console.log("🔥 Cloud Sync Ready! Starting StudyFlow...");
