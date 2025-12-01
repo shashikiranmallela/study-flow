@@ -472,8 +472,9 @@ const addEventListenersForTasks = (containerSelector) => {
             const todoItem = todos.find(t => t.id === todoId);
             if (todoItem) {
                 todoItem.completed = e.target.checked;
-                todoItem.completedAt = e.target.checked ? new Date().toISOString() : null;
+                todoItem.completedAt = e.target.checked ? (todoItem.completedAt || new Date().toISOString()) : null;
                 storage.set('todos', todos);
+
                 renderTasks();
                 if(document.getElementById('stats').classList.contains('active')) {
                     updateStats();
