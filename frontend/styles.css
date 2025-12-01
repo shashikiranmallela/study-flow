@@ -68,6 +68,20 @@ h1, h2, h3, h4, h5, h6 {
     display: flex;
     min-height: 100vh;
 }
+/* block interactions while loading */
+body.loading {
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.98;
+}
+
+/* make loadingScreen visible above everything */
+#loadingScreen {
+  position: fixed; inset: 0; display:flex; align-items:center; justify-content:center;
+  background: rgba(0,0,0,0.6); color: #fff; z-index: 9999; flex-direction: column;
+}
+#loadingScreen.hide { display: none; }
+
 
 /* Animations */
 @keyframes fade-in {
