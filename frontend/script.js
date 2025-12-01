@@ -1,3 +1,62 @@
+// Put page into loading state immediately
+document.documentElement.classList.add('loading');
+
+// Helper: hide loading UI when ready
+function markAppReady() {
+  const loadingScreen = document.getElementById('loadingScreen');
+  if (loadingScreen) loadingScreen.classList.add('hide');
+  document.documentElement.classList.remove('loading');
+}
+
+// Wait for both firebaseReady and firestore data loaded
+function waitForAppReady() {
+  return new Promise((resolve) => {
+    const check = () => {
+      // prefer your flag __firestoreDataLoaded and firebaseReady
+      if ((window.__firestoreDataLoaded || false) && (window.firebaseReady || false)) {
+        resolve();
+      }
+    };
+
+    // if wrapper dispatches a custom event "cloud-sync-ready" you added:
+    document.addEventListener('cloud-sync-ready', () => {
+      check();
+    });
+
+    // Also check on auth change (defensive)
+    if (window.firebase && firebase.auth) {
+      firebase.auth().onAuthStateChanged(() => {
+        check();
+      });
+    }
+
+    // fallback polling (safety) - stop after 12s
+    const t = setInterval(() => {
+      check();
+      if ((window.__firestoreDataLoaded || false) && (window.firebaseReady || false)) {
+        clearInterval(t);
+      }
+    }, 200);
+
+    setTimeout(() => { clearInterval(t); resolve(); }, 12000);
+  });
+}
+
+// call this after DOMContentLoaded to remove loading screen and continue app init
+document.addEventListener('DOMContentLoaded', async () => {
+  await waitForAppReady();
+  markAppReady();
+
+  // Now safe to call your existing init (if you have startApp or navigateTo)
+  if (typeof startApp === 'function') startApp();
+  else {
+    // keep existing behaviour: navigateTo dashboard used at end of file
+    if (typeof navigateTo === 'function') navigateTo('dashboard');
+    // also update auth UI
+    try { updateAuthUI(); } catch(e) {}
+  }
+});
+
 // CLOUD LOADER — waits for firebase-wrapper
 function waitForFirestoreData() {
   return new Promise(res => {
