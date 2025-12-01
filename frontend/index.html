@@ -8,6 +8,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <!-- 1) your app loads firebase config from backend and initializes firebase -->
+    <script src="firebase-init.js" defer></script>
+    
+    <!-- 2) the wrapper that reads/writes Firestore and sets window.__firestoreDataLoaded -->
+    <script src="firebase-wrapper.js" defer></script>
+    
+    <!-- 3) your main app logic file (script.js) that depends on storage/firestore -->
+    <script src="script.js" defer></script>
+
+
 </head>
 <body>
     <div id="loadingScreen" class="dots-loader">
