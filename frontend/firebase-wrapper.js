@@ -73,45 +73,44 @@ function normalizeRemoteData(raw) {
 
   // TODOS
   const rawTodos = pick("todos", []);
-  if (Array.isArray(rawTodos)) {
-    normalized.todos = rawTodos.map(item => {
-      if (typeof item === "object") return normalizeTodoObject(item);
-      return normalizeTodoObject({ text: String(item), completed: false });
-    });
-  } else normalized.todos = [];
+  normalized.todos = Array.isArray(rawTodos)
+    ? rawTodos.map(item =>
+        typeof item === "object"
+          ? normalizeTodoObject(item)
+          : normalizeTodoObject({ text: String(item), completed: false })
+      )
+    : [];
 
   // ROUTINE
   const rawRoutine = pick("routine", []);
-  if (Array.isArray(rawRoutine)) {
-    normalized.routine = rawRoutine.map(r => ({
-      id: r?.id ? String(r.id) : Date.now().toString() + Math.random().toString(36).slice(2,7),
-      time: r?.time || r?.t || "",
-      activity: r?.activity || r?.name || ""
-    }));
-  } else normalized.routine = [];
+  normalized.routine = Array.isArray(rawRoutine)
+    ? rawRoutine.map(r => ({
+        id: r?.id ? String(r.id) : Date.now().toString() + Math.random().toString(36).slice(2,7),
+        time: r?.time || r?.t || "",
+        activity: r?.activity || r?.name || ""
+      }))
+    : [];
 
   // TIME SESSIONS
   const rawSessions = pick("timeSessions", []);
-  if (Array.isArray(rawSessions)) {
-    normalized.timeSessions = rawSessions.map(s => ({
-      date: s?.date || s?.createdAt || new Date().toISOString(),
-      duration: Number(s?.duration) || 0,
-      type: s?.type || "study",
-      task: s?.task || s?.subject || null
-    }));
-  } else normalized.timeSessions = [];
+  normalized.timeSessions = Array.isArray(rawSessions)
+    ? rawSessions.map(s => ({
+        date: s?.date || s?.createdAt || new Date().toISOString(),
+        duration: Number(s?.duration) || 0,
+        type: s?.type || "study",
+        task: s?.task || s?.subject || null
+      }))
+    : [];
 
   // TIMER STATE
-  const rawTimer = pick("timerState", null);
-  normalized.timerState = rawTimer && typeof rawTimer === "object"
-    ? {
-        seconds: Number(rawTimer.seconds) || 0,
-        isRunning: !!rawTimer.isRunning,
-        isBreak: !!rawTimer.isBreak,
-        currentTask: rawTimer.currentTask || "",
-        startTime: rawTimer.startTime || null
-      }
-    : { seconds: 0, isRunning: false, isBreak: false, currentTask: "", startTime: null };
+  const rawTimer = pick("timerState", {});
+  normalized.timerState = {
+    seconds: Number(rawTimer.seconds) || 0,
+    isRunning: !!rawTimer.isRunning,
+    isBreak: !!rawTimer.isBreak,
+    currentTask: rawTimer.currentTask || "",
+    startTime: rawTimer.startTime || null
+  };
 
   // OTHER KEYS
   normalized.currentStatsPeriod = pick("currentStatsPeriod", "today");
@@ -178,9 +177,8 @@ function gatherLocalForMigration() {
 
     storage.set = function(key, value) {
       try {
-        if (originalSet) originalSet.call(storage, key, value);
-        else localStorage.setItem(key, JSON.stringify(value));
-      } catch(e) {}
+        originalSet.call(storage, key, value);
+      } catch {}
 
       // Normalize todos before syncing
       if (key === "todos" && Array.isArray(value)) {
@@ -199,9 +197,7 @@ function gatherLocalForMigration() {
 
     storage.get = function(key, def = null) {
       try {
-        return originalGet
-          ? originalGet.call(storage, key, def)
-          : JSON.parse(localStorage.getItem(key)) || def;
+        return originalGet.call(storage, key, def);
       } catch {
         return def;
       }
@@ -217,10 +213,7 @@ function gatherLocalForMigration() {
     if (!user) {
       console.log("firebase-wrapper: signed out");
 
-      // Allow page to continue
       window.__firestoreDataLoaded = true;
-
-      // Send event to script.js
       document.dispatchEvent(new Event("cloud-sync-ready"));
       return;
     }
@@ -247,16 +240,16 @@ function gatherLocalForMigration() {
         const localPayload = gatherLocalForMigration();
         const normalizedLocal = normalizeRemoteData(localPayload);
 
-        const filteredWrite = {};
+        const filtered = {};
         Object.keys(normalizedLocal).forEach(k => {
           const v = normalizedLocal[k];
           if (v == null) return;
           if (Array.isArray(v) && v.length === 0) return;
-          filteredWrite[k] = v;
+          filtered[k] = v;
         });
 
-        if (Object.keys(filteredWrite).length > 0) {
-          await docRef.set(filteredWrite, { merge: true });
+        if (Object.keys(filtered).length > 0) {
+          await docRef.set(filtered, { merge: true });
         } else {
           await docRef.set(
             { createdAt: firebase.firestore.FieldValue.serverTimestamp() },
@@ -265,23 +258,23 @@ function gatherLocalForMigration() {
         }
       }
 
-      // Mark ready & install wrapper
+      // Success → mark loaded + wrap storage
       window.__firestoreDataLoaded = true;
       wrapStorageWithDocRef(docRef);
 
-      // Notify UI
+      // 🔥 Notify UI → release loading screen
       document.dispatchEvent(new Event("cloud-sync-ready"));
 
     } catch (err) {
       console.error("firebase-wrapper: load/migrate error", err);
 
-      // Still allow app to continue
+      // Allow app to continue
       window.__firestoreDataLoaded = true;
 
-      // Wrap with null (local only)
+      // Local only
       wrapStorageWithDocRef(null);
 
-      // Notify UI in error case too
+      // Still notify UI to unlock app
       document.dispatchEvent(new Event("cloud-sync-ready"));
     }
   });
