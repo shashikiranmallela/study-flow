@@ -113,20 +113,53 @@ const removeStorage = (key) => {
     localStorage.removeItem(key);
 };
 
-// Local Storage
-const storage = {
-    get: (key, defaultValue = null) => {
-        try {
-            const item = localStorage.getItem(key);
-            return item ? JSON.parse(item) : defaultValue;
-        } catch {
-            return defaultValue;
-        }
-    },
-    set: (key, value) => {
-        localStorage.setItem(key, JSON.stringify(value));
+// ---------- STORAGE (dynamic proxy -> uses firebase-wrapper when ready) ----------
+
+const fallbackStorage = {
+  get: (key, defaultValue = null) => {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch (e) {
+      console.warn('fallbackStorage.get error', e);
+      return defaultValue;
     }
+  },
+  set: (key, value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.warn('fallbackStorage.set error', e);
+    }
+  }
 };
+
+// storageProxy will always forward calls to window.storage when that exists,
+// otherwise it uses fallbackStorage. When the wrapper later overwrites window.storage,
+// proxy will start using it automatically.
+const storage = new Proxy({}, {
+  get(target, prop) {
+    const s = (typeof window !== 'undefined' && window.storage) ? window.storage : fallbackStorage;
+    const val = s[prop];
+    if (typeof val === 'function') return val.bind(s);
+    return val;
+  },
+  set(target, prop, value) {
+    const s = (typeof window !== 'undefined' && window.storage) ? window.storage : fallbackStorage;
+    try {
+      s[prop] = value;
+      return true;
+    } catch (e) {
+      console.warn('storage proxy set error', e);
+      return false;
+    }
+  },
+  has(target, prop) {
+    const s = (typeof window !== 'undefined' && window.storage) ? window.storage : fallbackStorage;
+    return prop in s;
+  }
+});
+
 
 // --- App State ---
 let calendarDate = new Date();
