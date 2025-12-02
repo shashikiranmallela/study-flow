@@ -2,32 +2,27 @@
 // FINAL APP LOADING CONTROLLER
 // -----------------------------
 
-// Show loader immediately
 document.documentElement.classList.add('loading');
 const loadingScreenEl = document.getElementById('loadingScreen');
 if (loadingScreenEl) loadingScreenEl.style.display = 'flex';
 
-// Hide loader when ready
 function markAppReady() {
   const loader = document.getElementById('loadingScreen');
   if (loader) loader.style.display = 'none';
   document.documentElement.classList.remove('loading');
 }
 
-// Wait for firebase-init + firebase-wrapper
 async function waitForAppBoot() {
   return new Promise(resolve => {
     const check = () => {
       if (window.firebaseReady && window.__firestoreDataLoaded) resolve();
     };
-
     document.addEventListener('cloud-sync-ready', check);
-
     const t = setInterval(check, 100);
     setTimeout(() => {
       clearInterval(t);
-      resolve(); // fail-safe
-    }, 12000);
+      resolve();
+    }, 15000);
   });
 }
 
@@ -36,6 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   markAppReady();
   navigateTo('dashboard');
 });
+
 
 
 // Utility Functions
