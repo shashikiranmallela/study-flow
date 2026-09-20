@@ -8,16 +8,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
-    <!-- 1) your app loads firebase config from backend and initializes firebase -->
-    <script src="firebase-init.js" defer></script>
-    
-    <!-- 2) the wrapper that reads/writes Firestore and sets window.__firestoreDataLoaded -->
-    <script src="firebase-wrapper.js" defer></script>
-    
-    <!-- 3) your main app logic file (script.js) that depends on storage/firestore -->
-    <script src="script.js" defer></script>
-
-
 </head>
 <body>
     <div id="loadingScreen" class="dots-loader">
@@ -520,18 +510,19 @@
         </div>
     </div>
 
-    <!-- FIREBASE v8 (FULLY COMPATIBLE WITH YOUR CODE) -->
+    <!-- FIREBASE v8 SDK -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
-    <!-- Custom Firebase initialization (fetches config from backend) -->
+    <!-- 1) Initialise Firebase (config is built in - no backend needed) -->
     <script src="firebase-init.js"></script>
 
-    <!-- Firebase wrapper for storage sync -->
-    <script src="firebase-wrapper.js"></script>
-
-    <!-- Main app logic -->
+    <!-- 2) Main app logic (defines the global `storage` object) -->
     <script src="script.js"></script>
+
+    <!-- 3) Cloud sync: wraps `storage` so every save also goes to Firestore.
+            Must load AFTER script.js. Each script is loaded exactly once. -->
+    <script src="firebase-wrapper.js"></script>
 </body>
 </html>

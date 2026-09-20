@@ -1,5 +1,5 @@
 // -----------------------------
-// FINAL APP LOADING CONTROLLER
+// APP LOADING CONTROLLER
 // -----------------------------
 
 // Show loader immediately
@@ -14,27 +14,40 @@ function markAppReady() {
   document.documentElement.classList.remove('loading');
 }
 
-// Wait for firebase-init + firebase-wrapper
-async function waitForAppBoot() {
+// Wait for firebase-wrapper.js to finish the first cloud sync.
+// (The wrapper ALWAYS sets the flag - even when Firebase is unreachable -
+//  and the 10s timeout below is only a last-resort safety net.)
+function waitForAppBoot() {
   return new Promise(resolve => {
-    const check = () => {
-      if (window.firebaseReady && window.__firestoreDataLoaded) resolve();
+    let finished = false;
+    let poll = null;
+    let failSafe = null;
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearInterval(poll);
+      clearTimeout(failSafe);
+      resolve();
     };
+    const check = () => { if (window.__firestoreDataLoaded) finish(); };
 
     document.addEventListener('cloud-sync-ready', check);
-
-    const t = setInterval(check, 100);
-    setTimeout(() => {
-      clearInterval(t);
-      resolve(); // fail-safe
-    }, 12000);
+    poll = setInterval(check, 100);
+    failSafe = setTimeout(finish, 10000);
+    check();
   });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   await waitForAppBoot();
+  refreshStateFromStorage();   // pick up data the wrapper just pulled from Firestore
   markAppReady();
   navigateTo('dashboard');
+
+  if (window.__cloudSyncError) {
+    showToast('Cloud sync is unavailable right now - your changes are saved on this device only.', 6000);
+  }
 });
 
 
@@ -52,6 +65,27 @@ const formatTimeShort = (seconds) => {
     if (hours > 0) return `${hours}h ${minutes}m`;
     if (minutes > 0) return `${minutes}m`;
     return `${seconds}s`;
+};
+
+// Escape user text before putting it into innerHTML (prevents script injection)
+const escapeHTML = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// Local (not UTC!) calendar-date helpers.
+// toISOString() returns UTC, which shifts dates by a day in most timezones.
+const pad2 = (n) => String(n).padStart(2, '0');
+const localDateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const toLocalDate = (v) => {
+    if (v instanceof Date) return new Date(v.getTime());
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        const [y, m, d] = v.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    }
+    return new Date(v);
 };
 
 // Add error handler for API calls
@@ -98,7 +132,7 @@ const updateAuthUI = () => {
       if (guestAuth) guestAuth.style.display = 'none';
       if (logoutLink) logoutLink.style.display = 'flex';
 
-      const savedName = storage.get('username', user.email.split("@")[0]);
+      const savedName = storage.get('username', user.displayName || (user.email || 'User').split("@")[0]);
       if (usernameSpan) usernameSpan.textContent = savedName;
 
     } else {
@@ -112,6 +146,29 @@ const updateAuthUI = () => {
   }
 };
 
+
+// --- Logout ---
+const logoutLinkEl = document.getElementById('logoutLink');
+if (logoutLinkEl) {
+    logoutLinkEl.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+            // let pending Firestore writes finish before we lose our permissions
+            await Promise.race([
+                firebase.firestore().waitForPendingWrites(),
+                new Promise(resolve => setTimeout(resolve, 3000))
+            ]);
+        } catch (err) { console.warn('Could not flush pending writes:', err); }
+
+        try { await firebase.auth().signOut(); }
+        catch (err) { console.error('Sign out failed:', err); }
+
+        // Remove this user's data from the browser so the next person
+        // who logs in here never sees (or uploads) it.
+        try { localStorage.clear(); } catch (err) { /* ignore */ }
+        window.location.reload();
+    });
+}
 
 const removeStorage = (key) => {
     localStorage.removeItem(key);
@@ -128,9 +185,15 @@ const storage = {
         }
     },
     set: (key, value) => {
-        localStorage.setItem(key, JSON.stringify(value));
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+        } catch (e) {
+            console.warn('storage.set failed for', key, e);
+        }
     }
 };
+// firebase-wrapper.js wraps THIS object so every set() is also synced to Firestore
+window.storage = storage;
 
 // --- App State ---
 let calendarDate = new Date();
@@ -285,7 +348,7 @@ const updateDashboard = () => {
                 ${todo.completed ? 
                     `<div class="task-icon completed"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>` :
                     '<div class="task-icon pending"></div>'}
-                <span class="${todo.completed ? 'completed' : ''}">${todo.text}</span>
+                <span class="${todo.completed ? 'completed' : ''}">${escapeHTML(todo.text)}</span>
             </li>
         `).join('') + '</ul>';
     
@@ -298,8 +361,9 @@ const updateDashboard = () => {
 // --- Todo List ---
 let todos = storage.get("todos", []) || [];
 
-window.addEventListener("cloud-sync-ready", () => {
-    todos = storage.get("todos", []) || [];
+document.addEventListener("cloud-sync-ready", () => {
+    refreshStateFromStorage();
+    updateAuthUI();
     renderTasks();
     updateDashboard();
 });
@@ -317,6 +381,7 @@ const renderTasks = () => {
     
     if (!Array.isArray(todos)) return;
 
+    const todoCountBefore = todos.length;
     todos = todos.filter(t => {
         if (!t) return false;
         if (!t.completed) return true;
@@ -324,7 +389,8 @@ const renderTasks = () => {
         return new Date(t.completedAt).getTime() > oneWeekAgo;
     });
     
-    storage.set("todos", todos); // safe sync
+    // Only persist when something was actually pruned (avoids a Firestore write on every render)
+    if (todos.length !== todoCountBefore) storage.set("todos", todos);
 
     
     const activeTodos = todos.filter(t => !t.completed);
@@ -345,14 +411,14 @@ const renderTasks = () => {
 
 const createTaskElement = (todo) => {
     return `
-        <li class="task-item ${todo.completed ? 'completed' : ''}" data-id="${todo.id || ''}">
-            <input type="checkbox" class="task-checkbox" ${todo.completed ? 'checked' : ''} data-id="${todo.id}">
-            <span class="task-text">${todo.text}</span>
+        <li class="task-item ${todo.completed ? 'completed' : ''}" data-id="${escapeHTML(todo.id)}">
+            <input type="checkbox" class="task-checkbox" ${todo.completed ? 'checked' : ''} data-id="${escapeHTML(todo.id)}">
+            <span class="task-text">${escapeHTML(todo.text)}</span>
             <div class="task-actions">
-                <button class="task-action-btn task-edit" data-id="${todo.id}">
+                <button class="task-action-btn task-edit" data-id="${escapeHTML(todo.id)}">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
-                <button class="task-action-btn task-delete" data-id="${todo.id}">
+                <button class="task-action-btn task-delete" data-id="${escapeHTML(todo.id)}">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>
             </div>
@@ -374,7 +440,10 @@ const handleEditTask = (taskId) => {
     input.value = currentText;
     input.className = 'input task-edit-input';
 
+    let editFinished = false;
     const saveEdit = () => {
+        if (editFinished) return;
+        editFinished = true;
         const newText = input.value.trim();
         const todo = todos.find(t => t && t.id === taskId);
         if (todo && newText) {
@@ -391,6 +460,7 @@ const handleEditTask = (taskId) => {
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') saveEdit();
         if (e.key === 'Escape') {
+             editFinished = true;
              if (document.getElementById('todos').classList.contains('active')) renderTasks();
              else if (document.getElementById('stats').classList.contains('active')) updateStats();
         }
@@ -417,9 +487,14 @@ const handleDeleteTask = (taskId) => {
 };
 
 
+// Delegated listeners, attached only ONCE per container.
+// (Before, a new click listener was stacked on every render, so one click
+//  could fire many times.)
+const taskListenersAttached = new WeakSet();
 const addEventListenersForTasks = (containerSelector) => {
     const container = document.querySelector(containerSelector);
-    if(!container) return;
+    if (!container || taskListenersAttached.has(container)) return;
+    taskListenersAttached.add(container);
 
     container.addEventListener('click', (e) => {
         const editBtn = e.target.closest('.task-edit');
@@ -431,26 +506,28 @@ const addEventListenersForTasks = (containerSelector) => {
         const deleteBtn = e.target.closest('.task-delete');
         if (deleteBtn) {
             handleDeleteTask(deleteBtn.dataset.id);
-            return;
         }
     });
 
-    container.querySelectorAll('.task-checkbox').forEach(checkbox => {
-        checkbox.addEventListener('change', (e) => {
-            const todoId = e.target.dataset.id;
-            const todoItem = todos.find(t => t && t.id === todoId);
-            if (todoItem) {
-                todoItem.completed = e.target.checked;
-                todoItem.completedAt = e.target.checked ? (todoItem.completedAt || new Date().toISOString()) : null;
-                storage.set('todos', todos);
+    container.addEventListener('change', (e) => {
+        if (!e.target.classList.contains('task-checkbox')) return;
 
-                renderTasks();
-                if(document.getElementById('stats').classList.contains('active')) {
-                    updateStats();
-                }
-                showToast(e.target.checked ? 'Task completed! ✅' : 'Task reopened');
+        const todoId = e.target.dataset.id;
+        const todoItem = todos.find(t => t && t.id === todoId);
+        if (todoItem) {
+            todoItem.completed = e.target.checked;
+            todoItem.completedAt = e.target.checked ? (todoItem.completedAt || new Date().toISOString()) : null;
+            storage.set('todos', todos);
+
+            renderTasks();
+            if (document.getElementById('stats').classList.contains('active')) {
+                updateStats();
             }
-        });
+            if (document.getElementById('dashboard').classList.contains('active')) {
+                updateDashboard();
+            }
+            showToast(e.target.checked ? 'Task completed! ✅' : 'Task reopened');
+        }
     });
 };
 
@@ -479,13 +556,14 @@ document.getElementById('newTodo').addEventListener('keypress', (e) => {
 });
 
 // --- Timer ---
-let timerState = storage.get('timerState', {
+const defaultTimerState = () => ({
     seconds: 0,
     isRunning: false,
     isBreak: false,
     currentTask: '',
     startTime: null
 });
+let timerState = storage.get('timerState', defaultTimerState());
 
 let timerInterval = null;
 
@@ -528,11 +606,15 @@ const updateTimerSummary = () => {
         </div>`;
 };
 
-const startTimer = () => {
+const startTimer = (resume = false) => {
     if (timerInterval) return;
-    
+
+    // When resuming after a page refresh keep the ORIGINAL start time
+    if (!(resume && timerState.startTime)) {
+        timerState.startTime = Date.now() - (timerState.seconds * 1000);
+    }
     timerState.isRunning = true;
-    timerState.startTime = Date.now() - (timerState.seconds * 1000);
+    storage.set('timerState', timerState);   // so a refresh doesn't lose the running session
     
     timerInterval = setInterval(updateTimerDisplay, 1000);
     
@@ -562,7 +644,7 @@ const endSession = (showMsg = true) => {
             date: new Date().toISOString(),
             duration: sessionDuration,
             type: timerState.isBreak ? 'break' : 'study',
-            task: !timerState.isBreak ? timerState.currentTask : undefined
+            task: !timerState.isBreak ? (timerState.currentTask || null) : null   // never undefined - Firestore rejects it
         });
         storage.set('timeSessions', sessions);
         
@@ -625,11 +707,43 @@ const updateTimerVisuals = () => {
     updateTimerDisplay();
 };
 
+// Resume a timer that was running when the page was refreshed/closed
+const resumeTimerIfRunning = () => {
+    if (timerInterval || !timerState.isRunning) return;
+
+    const elapsedMs = Date.now() - (timerState.startTime || 0);
+    if (timerState.startTime && elapsedMs < 12 * 60 * 60 * 1000) {
+        startTimer(true);
+    } else {
+        // stale (page was closed for many hours) - drop it instead of logging a huge session
+        timerState.isRunning = false;
+        timerState.seconds = 0;
+        timerState.startTime = null;
+        storage.set('timerState', timerState);
+    }
+};
+
+// Re-read everything that script.js cached at load time, AFTER the cloud sync finished.
+// (Without this, a stale local copy could overwrite the data stored in Firestore.)
+function refreshStateFromStorage() {
+    todos = storage.get('todos', []) || [];
+
+    const theme = storage.get('theme', 'light');
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+
+    currentStatsPeriod = storage.get('currentStatsPeriod', 'today');
+
+    if (!timerInterval) {
+        timerState = storage.get('timerState', defaultTimerState()) || defaultTimerState();
+        document.getElementById('currentTask').value = timerState.currentTask || '';
+        resumeTimerIfRunning();
+        updateTimerVisuals();
+    }
+}
+
 // Initialize timer
 document.getElementById('currentTask').value = timerState.currentTask || '';
-if (timerState.isRunning) {
-    startTimer();
-}
+resumeTimerIfRunning();
 updateTimerVisuals();
 
 // Timer Event Listeners
@@ -708,16 +822,16 @@ const renderRoutine = () => {
         if (isEditingRoutine) {
             div.innerHTML = `
                 <div class="routine-edit-group">
-                    <input type="text" class="input routine-time-input" value="${item.time || ''}" placeholder="e.g. 08:00 AM">
-                    <input type="text" class="input routine-activity-input" value="${item.activity || ''}" placeholder="Activity">
+                    <input type="text" class="input routine-time-input" value="${escapeHTML(item.time)}" placeholder="e.g. 08:00 AM">
+                    <input type="text" class="input routine-activity-input" value="${escapeHTML(item.activity)}" placeholder="Activity">
                     <button class="delete-routine-btn">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                 </div>`;
         } else {
             div.innerHTML = `
-                <div class="routine-time">${item.time || 'N/A'}</div>
-                <div class="routine-activity">${item.activity || 'No Activity'}</div>`;
+                <div class="routine-time">${escapeHTML(item.time || 'N/A')}</div>
+                <div class="routine-activity">${escapeHTML(item.activity || 'No Activity')}</div>`;
         }
         schedule.appendChild(div);
     });
@@ -791,8 +905,8 @@ let selectedStatsDate = null;
 
 const calculateStats = (period, dateOverride = null) => {
     const sessions = storage.get('timeSessions', []);
-    let now = dateOverride ? new Date(dateOverride) : new Date();
-    if(dateOverride) now.setHours(23, 59, 59);
+    let now = dateOverride ? toLocalDate(dateOverride) : new Date();
+    if(dateOverride) now.setHours(23, 59, 59, 999);
 
     let cutoff;
     
@@ -831,8 +945,7 @@ const calculateStats = (period, dateOverride = null) => {
 };
 
 const renderCustomDateStats = (dateString) => {
-    const date = new Date(dateString);
-    const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
+    const localDate = toLocalDate(dateString);
     const dateStr = localDate.toDateString();
     
     document.getElementById('customDateTitle').textContent = `Stats for ${localDate.toLocaleDateString('default', { year: 'numeric', month: 'long', day: 'numeric' })}`;
@@ -874,7 +987,7 @@ const renderCustomDateStats = (dateString) => {
         studyList.innerHTML = studyTasks.map(t => `
             <div class="subject-item custom-date-subject">
                 <div class="subject-item-header">
-                    <span class="subject-item-name">${t.task || 'Untagged Session'}</span>
+                    <span class="subject-item-name">${escapeHTML(t.task || 'Untagged Session')}</span>
                     <span class="subject-item-time">${formatTimeShort(t.duration)}</span>
                 </div>
                 <div class="progress-bar">
@@ -1048,9 +1161,9 @@ const renderTimeBySubject = () => {
     
     // UPDATED: The structure already allows for cleaner visual using the new CSS
     container.innerHTML = '<div class="subject-list">' + tasks.map(t => `
-        <div class="subject-item" data-subject-name="${t.task}">
+        <div class="subject-item" data-subject-name="${escapeHTML(t.task)}">
             <div class="subject-item-header">
-                <span class="subject-item-name">${t.task}</span>
+                <span class="subject-item-name">${escapeHTML(t.task)}</span>
                 <span class="subject-item-time">${formatTimeShort(t.duration)}</span>
                 <div class="subject-item-actions">
                     <button class="subject-action-btn edit">
@@ -1066,19 +1179,23 @@ const renderTimeBySubject = () => {
             </div>
         </div>`).join('') + '</div>';
 
-    container.addEventListener('click', (e) => {
-        const subjectItem = e.target.closest('.subject-item');
-        if (!subjectItem) return;
+    // attach only once - this function runs on every stats render
+    if (!container.dataset.bound) {
+        container.dataset.bound = '1';
+        container.addEventListener('click', (e) => {
+            const subjectItem = e.target.closest('.subject-item');
+            if (!subjectItem) return;
 
-        const subjectName = subjectItem.dataset.subjectName;
+            const subjectName = subjectItem.dataset.subjectName;
 
-        if (e.target.closest('.edit')) {
-            handleEditSubject(subjectItem);
-        }
-        if (e.target.closest('.delete')) {
-            handleDeleteSubject(subjectName);
-        }
-    });
+            if (e.target.closest('.edit')) {
+                handleEditSubject(subjectItem);
+            }
+            if (e.target.closest('.delete')) {
+                handleDeleteSubject(subjectName);
+            }
+        });
+    }
 };
 
 const renderRecentCompletedTasks = () => {
@@ -1157,20 +1274,20 @@ const renderCalendar = () => {
                 const day = i + 1;
                 const currentDate = new Date(year, month, day);
                 const isToday = today.toDateString() === currentDate.toDateString();
-                const isSelected = selectedStatsDate && new Date(selectedStatsDate).toDateString() === currentDate.toDateString();
-                return `<div class="calendar-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}" data-date="${new Date(year, month, day + 1).toISOString().slice(0, 10)}">${day}</div>`;
+                const isSelected = selectedStatsDate && toLocalDate(selectedStatsDate).toDateString() === currentDate.toDateString();
+                return `<div class="calendar-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}" data-date="${localDateKey(currentDate)}">${day}</div>`;
             }).join('')}
         </div>`;
     calendarPopup.innerHTML = html;
     
-    document.getElementById('cal-prev').addEventListener('click', () => { calendarDate.setMonth(month - 1); renderCalendar(); });
-    document.getElementById('cal-next').addEventListener('click', () => { calendarDate.setMonth(month + 1); renderCalendar(); });
+    // build a fresh 1st-of-month date (setMonth on e.g. Jan 31 used to skip months)
+    document.getElementById('cal-prev').addEventListener('click', (e) => { e.stopPropagation(); calendarDate = new Date(year, month - 1, 1); renderCalendar(); });
+    document.getElementById('cal-next').addEventListener('click', (e) => { e.stopPropagation(); calendarDate = new Date(year, month + 1, 1); renderCalendar(); });
     
     calendarPopup.querySelectorAll('.calendar-day').forEach(day => {
         day.addEventListener('click', (e) => {
             selectedStatsDate = e.target.dataset.date;
-            const date = new Date(selectedStatsDate);
-            const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
+            const localDate = toLocalDate(selectedStatsDate);
             
             document.querySelector('#datePickerBtn span').textContent = `${localDate.toLocaleDateString('default', { month: 'long', day: 'numeric', year: 'numeric' })}`;
             
@@ -1202,7 +1319,7 @@ graphModal.addEventListener('click', (e) => { if (e.target === graphModal) graph
 const openChartModal = (period, dateOverride = null) => {
     const sessions = storage.get('timeSessions', []);
     let chartData = [], title = "Study Time", maxVal = 0;
-    const now = dateOverride ? new Date(dateOverride) : new Date();
+    const now = dateOverride ? toLocalDate(dateOverride) : new Date();
 
     switch(period) {
         case 'today':
@@ -1340,10 +1457,10 @@ const calculateStreaks = (activityMap) => {
     // 1. Calculate Current Streak by checking today and yesterday
     const sortedDates = Object.keys(activityMap).sort();
     
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = localDateKey(today);
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+    const yesterdayStr = localDateKey(yesterday);
 
     // Check if today is active
     if (activityMap[todayStr]) {
@@ -1352,7 +1469,7 @@ const calculateStreaks = (activityMap) => {
         let active = true;
         // Go backwards until the streak is broken
         while(active) {
-            const dayStr = day.toISOString().slice(0, 10);
+            const dayStr = localDateKey(day);
             if (activityMap[dayStr]) {
                 currentStreak++;
                 day.setDate(day.getDate() - 1);
@@ -1402,13 +1519,13 @@ const renderStreakGrid = (year) => {
         .filter(s => s.type === 'study')
         .reduce((acc, session) => {
             // Use only the date part for grouping
-            const date = new Date(session.date).toISOString().slice(0, 10);
+            const date = localDateKey(new Date(session.date));
             acc[date] = (acc[date] || 0) + session.duration;
             return acc;
         }, {});
 
     const yearActivityMap = Object.keys(activityMap)
-        .filter(date => new Date(date).getFullYear() === year)
+        .filter(date => Number(date.slice(0, 4)) === year)
         .reduce((acc, date) => {
             acc[date] = activityMap[date];
             return acc;
@@ -1452,7 +1569,7 @@ const renderStreakGrid = (year) => {
 
         for (let day = 1; day <= daysInMonth; day++) {
             const date = new Date(year, month, day);
-            const dateString = date.toISOString().slice(0, 10);
+            const dateString = localDateKey(date);
             
             const dayDiv = document.createElement('div');
             dayDiv.className = 'streak-day';
@@ -1502,4 +1619,3 @@ const setupStreakCalendar = () => {
         renderStreakGrid(streakYear);
     });
 };
-

@@ -1,290 +1,264 @@
 // ------------------------------------------------------------
-// firebase-wrapper.js  (FINAL FIXED VERSION)
-// Syncs Firestore <-> localStorage and signals script.js when ready
+// firebase-wrapper.js
+// Keeps localStorage and Firestore (users/{uid}) in sync and tells
+// script.js when the first sync is finished ("cloud-sync-ready").
+//
+// Load order in index.html:  Firebase SDK -> firebase-init.js -> script.js -> this file
 // ------------------------------------------------------------
+(function () {
+  // never run twice (the old index.html loaded this file two times)
+  if (window.__fbWrapperLoaded) return;
+  window.__fbWrapperLoaded = true;
 
-console.log("firebase-wrapper.js loaded");
+  console.log("firebase-wrapper.js loaded");
 
-// Global flag script.js waits for
-window.__firestoreDataLoaded = false;
+  // Only these keys are stored in the cloud
+  const SYNC_KEYS = [
+    "todos", "routine", "timeSessions", "timerState",
+    "currentStatsPeriod", "theme", "username"
+  ];
+  const OWNER_KEY = "__dataOwner"; // uid that the data in localStorage belongs to
 
-// Wait until firebase-init.js is done
-function waitForFirebase() {
-  return new Promise((resolve) => {
-    if (window.firebaseReady) return resolve();
+  window.__firestoreDataLoaded = false;
+  window.__cloudSyncError = null;
 
-    const t = setInterval(() => {
-      if (window.firebaseReady) {
-        clearInterval(t);
-        resolve();
-      }
-    }, 50);
+  // ----------------------------------------------------------
+  // helpers
+  // ----------------------------------------------------------
+  const newId = () => Date.now().toString() + Math.random().toString(36).slice(2, 7);
 
-    // Safety timeout
-    setTimeout(() => {
-      clearInterval(t);
-      resolve();
-    }, 10000);
-  });
-}
+  // JSON round-trip drops `undefined`, which Firestore refuses to store
+  const clean = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
 
-// Ensure storage fallback (in case script.js runs early)
-function ensureStorageFallback() {
-  if (!window.storage) {
+  function ensureStorage() {
+    if (window.storage) return;
     window.storage = {
       get: (k, def = null) => {
-        try {
-          const v = localStorage.getItem(k);
-          return v ? JSON.parse(v) : def;
-        } catch {
-          return def;
-        }
+        try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; }
+        catch { return def; }
       },
       set: (k, v) => {
         try { localStorage.setItem(k, JSON.stringify(v)); }
-        catch(e) { console.warn(e); }
+        catch (e) { console.warn(e); }
       }
     };
   }
-}
 
-// Normalizes a todo item
-function normalizeTodoObject(item) {
-  const baseId = Date.now().toString() + Math.random().toString(36).slice(2,7);
-  const id = item?.id ? String(item.id) : baseId;
-
-  const text = item?.text || item?.title || item?.name || "";
-
-  const completed = !!item?.completed;
-  const createdAt = item?.createdAt || item?.created_at || new Date().toISOString();
-
-  let completedAt = item?.completedAt || item?.completed_at || null;
-  if (completed && !completedAt) {
-    completedAt = new Date().toISOString();
-  }
-
-  return { id, text, completed, createdAt, completedAt };
-}
-
-// Normalize Firestore remote object → localStorage shape
-function normalizeRemoteData(raw) {
-  const pick = (k, def) => (raw && raw.hasOwnProperty(k) ? raw[k] : def);
-  const normalized = {};
-
-  // TODOS
-  const rawTodos = pick("todos", []);
-  if (Array.isArray(rawTodos)) {
-    normalized.todos = rawTodos.map(item => {
-      if (typeof item === "object") return normalizeTodoObject(item);
-      return normalizeTodoObject({ text: String(item), completed: false });
-    });
-  } else normalized.todos = [];
-
-  // ROUTINE
-  const rawRoutine = pick("routine", []);
-  if (Array.isArray(rawRoutine)) {
-    normalized.routine = rawRoutine.map(r => ({
-      id: r?.id ? String(r.id) : Date.now().toString() + Math.random().toString(36).slice(2,7),
-      time: r?.time || r?.t || "",
-      activity: r?.activity || r?.name || ""
-    }));
-  } else normalized.routine = [];
-
-  // TIME SESSIONS
-  const rawSessions = pick("timeSessions", []);
-  if (Array.isArray(rawSessions)) {
-    normalized.timeSessions = rawSessions.map(s => ({
-      date: s?.date || s?.createdAt || new Date().toISOString(),
-      duration: Number(s?.duration) || 0,
-      type: s?.type || "study",
-      task: s?.task || s?.subject || null
-    }));
-  } else normalized.timeSessions = [];
-
-  // TIMER STATE
-  const rawTimer = pick("timerState", null);
-  normalized.timerState = rawTimer && typeof rawTimer === "object"
-    ? {
-        seconds: Number(rawTimer.seconds) || 0,
-        isRunning: !!rawTimer.isRunning,
-        isBreak: !!rawTimer.isBreak,
-        currentTask: rawTimer.currentTask || "",
-        startTime: rawTimer.startTime || null
-      }
-    : { seconds: 0, isRunning: false, isBreak: false, currentTask: "", startTime: null };
-
-  // OTHER KEYS
-  normalized.currentStatsPeriod = pick("currentStatsPeriod", "today");
-  normalized.theme = pick("theme", "light");
-  normalized.username = pick("username", "User");
-  normalized.email = pick("email", null);
-  normalized.uid = pick("uid", null);
-  normalized.isLoggedIn = !!pick("isLoggedIn", false);
-
-  return normalized;
-}
-
-// Apply normalized data to localStorage
-function applyNormalizedToLocalStorage(norm) {
-  const keys = [
-    "todos","routine","timeSessions","timerState",
-    "currentStatsPeriod","theme","username","email","uid","isLoggedIn"
-  ];
-
-  keys.forEach(k => {
-    try {
-      if (norm.hasOwnProperty(k)) {
-        localStorage.setItem(k, JSON.stringify(norm[k]));
-      }
-    } catch(e) {
-      console.warn("applyNormalized failed:", k, e);
+  let lastErrorToast = 0;
+  function reportSyncError(key, err) {
+    console.error("firebase-wrapper: sync error for", key, err);
+    window.__cloudSyncError = (err && (err.code || err.message)) || "unknown";
+    const now = Date.now();
+    if (now - lastErrorToast > 30000 && typeof showToast === "function") {
+      lastErrorToast = now;
+      showToast("Could not save to the cloud (" + window.__cloudSyncError + "). Saved on this device only.", 5000);
     }
-  });
-}
+  }
 
-// Gather local data for migration
-function gatherLocalForMigration() {
-  const keys = [
-    "todos","routine","timeSessions","timerState",
-    "currentStatsPeriod","theme","username","email","uid","isLoggedIn"
-  ];
-  const out = {};
-  keys.forEach(k => {
-    try {
-      const v = localStorage.getItem(k);
-      if (v !== null) out[k] = JSON.parse(v);
-    } catch {}
-  });
-  return out;
-}
+  // ----------------------------------------------------------
+  // normalisers
+  // ----------------------------------------------------------
+  function normalizeTodo(item) {
+    const id = item && item.id ? String(item.id) : newId();
+    const text = (item && (item.text || item.title || item.name)) || "";
+    const completed = !!(item && item.completed);
+    const createdAt = (item && (item.createdAt || item.created_at)) || new Date().toISOString();
+    let completedAt = (item && (item.completedAt || item.completed_at)) || null;
+    if (completed && !completedAt) completedAt = new Date().toISOString();
+    return { id, text, completed, createdAt, completedAt };
+  }
 
-// ------------------------------------------------------
-//  MAIN WRAPPER LOGIC
-// ------------------------------------------------------
-(async () => {
-  await waitForFirebase();
-  console.log("firebase-wrapper: Firebase ready");
+  // Only the keys that are PRESENT are returned, so missing keys never
+  // overwrite local data with defaults.
+  function normalizeData(raw) {
+    const out = {};
+    if (!raw || typeof raw !== "object") return out;
 
-  const auth = firebase.auth();
-  const db = firebase.firestore();
+    if (Array.isArray(raw.todos)) {
+      out.todos = raw.todos
+        .map(t => (t && typeof t === "object") ? normalizeTodo(t) : normalizeTodo({ text: String(t) }))
+        .filter(t => t.text);
+    }
 
-  ensureStorageFallback();
+    if (Array.isArray(raw.routine)) {
+      out.routine = raw.routine.map(r => ({
+        id: r && r.id ? String(r.id) : newId(),
+        time: (r && (r.time || r.t)) || "",
+        activity: (r && (r.activity || r.name)) || ""
+      }));
+    }
 
-  function wrapStorageWithDocRef(docRef) {
-    ensureStorageFallback();
+    if (Array.isArray(raw.timeSessions)) {
+      out.timeSessions = raw.timeSessions.map(s => ({
+        date: (s && (s.date || s.createdAt)) || new Date().toISOString(),
+        duration: Number(s && s.duration) || 0,
+        type: (s && s.type) || "study",
+        task: (s && (s.task || s.subject)) || null
+      }));
+    }
 
-    const originalSet = storage.set;
-    const originalGet = storage.get;
+    if (raw.timerState && typeof raw.timerState === "object") {
+      out.timerState = {
+        seconds: Number(raw.timerState.seconds) || 0,
+        isRunning: !!raw.timerState.isRunning,
+        isBreak: !!raw.timerState.isBreak,
+        currentTask: raw.timerState.currentTask || "",
+        startTime: raw.timerState.startTime || null
+      };
+    }
 
-    storage.set = function(key, value) {
+    if (typeof raw.currentStatsPeriod === "string") out.currentStatsPeriod = raw.currentStatsPeriod;
+    if (typeof raw.theme === "string") out.theme = raw.theme;
+    if (typeof raw.username === "string" && raw.username.trim()) out.username = raw.username.trim();
+    return out;
+  }
+
+  function gatherLocal() {
+    const out = {};
+    SYNC_KEYS.forEach(k => {
       try {
-        if (originalSet) originalSet.call(storage, key, value);
-        else localStorage.setItem(key, JSON.stringify(value));
-      } catch(e) {}
+        const v = localStorage.getItem(k);
+        if (v !== null) out[k] = JSON.parse(v);
+      } catch { /* ignore broken value */ }
+    });
+    return out;
+  }
 
-      // Normalize todos before syncing
-      if (key === "todos" && Array.isArray(value)) {
-        value = value.map(t => normalizeTodoObject(t));
+  function applyToLocal(norm) {
+    Object.keys(norm).forEach(k => {
+      if (!SYNC_KEYS.includes(k)) return;
+      try {
+        if (k === "timerState") {
+          // Never take over a timer that may be running on another device.
+          if (localStorage.getItem("timerState") !== null) return;
+          norm.timerState = Object.assign({}, norm.timerState, { isRunning: false, seconds: 0, startTime: null });
+        }
+        localStorage.setItem(k, JSON.stringify(norm[k]));
+      } catch (e) {
+        console.warn("firebase-wrapper: could not store", k, e);
       }
+    });
+  }
 
-      if (docRef) {
-        const updateObj = {};
-        updateObj[key] = value;
+  // ----------------------------------------------------------
+  // storage wrapping: every storage.set(key, value) also goes to Firestore
+  // ----------------------------------------------------------
+  function wrapStorage(docRef) {
+    ensureStorage();
+    const s = window.storage;
+    s.__docRef = docRef;              // can be null (signed out / offline mode)
+    if (s.__wrapped) return;          // already wrapped - only the target changed
+    s.__wrapped = true;
 
-        docRef.set(updateObj, { merge: true }).catch(err =>
-          console.error("sync error key:", key, err)
-        );
+    const originalSet = s.set.bind(s);
+    s.set = function (key, value) {
+      originalSet(key, value);        // always save locally first
+
+      const ref = s.__docRef;
+      if (!ref || !SYNC_KEYS.includes(key)) return;
+
+      try {
+        let v = clean(value);
+        if (key === "todos" && Array.isArray(v)) v = v.map(normalizeTodo);
+        ref.set({ [key]: v }, { merge: true }).catch(err => reportSyncError(key, err));
+      } catch (err) {
+        reportSyncError(key, err);
       }
     };
-
-    storage.get = function(key, def = null) {
-      try {
-        return originalGet
-          ? originalGet.call(storage, key, def)
-          : JSON.parse(localStorage.getItem(key)) || def;
-      } catch {
-        return def;
-      }
-    };
-
     console.log("firebase-wrapper: storage wrapped");
   }
 
-  // ------------------------------------------------------
-  // AUTH LISTENER
-  // ------------------------------------------------------
-  auth.onAuthStateChanged(async (user) => {
-    if (!user) {
-      console.log("firebase-wrapper: signed out");
+  function finish() {
+    window.__firestoreDataLoaded = true;
+    // bubbles:true so BOTH document and window listeners receive it
+    document.dispatchEvent(new Event("cloud-sync-ready", { bubbles: true }));
+  }
 
-      // Allow page to continue
-      window.__firestoreDataLoaded = true;
+  // ----------------------------------------------------------
+  // main
+  // ----------------------------------------------------------
+  function start() {
+    ensureStorage();
 
-      // Send event to script.js
-      document.dispatchEvent(new Event("cloud-sync-ready"));
+    if (typeof firebase === "undefined" || !firebase.apps || !firebase.apps.length) {
+      console.error("firebase-wrapper: Firebase is not initialised - local-only mode");
+      window.__cloudSyncError = "firebase-unavailable";
+      wrapStorage(null);
+      finish();
       return;
     }
 
-    const uid = user.uid;
-    const docRef = db.collection("users").doc(uid);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
 
-    try {
-      const snap = await docRef.get();
-      const remote = snap.exists ? snap.data() : {};
-
-      const remoteHasData = snap.exists && Object.keys(remote).some(k => {
-        const v = remote[k];
-        if (v == null) return false;
-        if (Array.isArray(v)) return v.length > 0;
-        if (typeof v === "object") return Object.keys(v).length > 0;
-        return true;
-      });
-
-      if (remoteHasData) {
-        const normalized = normalizeRemoteData(remote);
-        applyNormalizedToLocalStorage(normalized);
-      } else {
-        const localPayload = gatherLocalForMigration();
-        const normalizedLocal = normalizeRemoteData(localPayload);
-
-        const filteredWrite = {};
-        Object.keys(normalizedLocal).forEach(k => {
-          const v = normalizedLocal[k];
-          if (v == null) return;
-          if (Array.isArray(v) && v.length === 0) return;
-          filteredWrite[k] = v;
-        });
-
-        if (Object.keys(filteredWrite).length > 0) {
-          await docRef.set(filteredWrite, { merge: true });
-        } else {
-          await docRef.set(
-            { createdAt: firebase.firestore.FieldValue.serverTimestamp() },
-            { merge: true }
-          );
-        }
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        console.log("firebase-wrapper: signed out");
+        wrapStorage(null);
+        finish();
+        return;
       }
 
-      // Mark ready & install wrapper
-      window.__firestoreDataLoaded = true;
-      wrapStorageWithDocRef(docRef);
+      const docRef = db.collection("users").doc(user.uid);
 
-      // Notify UI
-      document.dispatchEvent(new Event("cloud-sync-ready"));
+      try {
+        // 1) Data in this browser belongs to a DIFFERENT account? Drop it,
+        //    otherwise it would leak into (and be uploaded to) this account.
+        const owner = localStorage.getItem(OWNER_KEY);
+        if (owner && owner !== user.uid) {
+          SYNC_KEYS.forEach(k => localStorage.removeItem(k));
+        }
 
-    } catch (err) {
-      console.error("firebase-wrapper: load/migrate error", err);
+        // 2) Read the cloud copy
+        const snap = await docRef.get();
+        const remote = snap.exists ? (snap.data() || {}) : {};
+        const hasRemoteData = ["todos", "routine", "timeSessions"].some(
+          k => Array.isArray(remote[k]) && remote[k].length > 0
+        );
 
-      // Still allow app to continue
-      window.__firestoreDataLoaded = true;
+        const writes = {};
 
-      // Wrap with null (local only)
-      wrapStorageWithDocRef(null);
+        if (hasRemoteData) {
+          // cloud wins -> copy it into localStorage
+          applyToLocal(normalizeData(remote));
+        } else {
+          // first login (or empty account) -> upload what was created as a guest
+          const local = normalizeData(gatherLocal());
+          Object.keys(local).forEach(k => {
+            const v = local[k];
+            if (v == null) return;
+            if (Array.isArray(v) && v.length === 0) return;
+            writes[k] = v;
+          });
+        }
 
-      // Notify UI in error case too
-      document.dispatchEvent(new Event("cloud-sync-ready"));
-    }
-  });
+        // 3) username: cloud value -> Firebase displayName -> e-mail prefix
+        const remoteName = typeof remote.username === "string" && remote.username.trim() ? remote.username.trim() : "";
+        const name = remoteName || user.displayName || (user.email || "").split("@")[0] || "User";
+        localStorage.setItem("username", JSON.stringify(name));
+        if (!remoteName) writes.username = name;
 
-  console.log("firebase-wrapper: initialized");
+        const payload = clean(writes);   // plain JSON only (no undefined)
+        if (!snap.exists) payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+
+        if (Object.keys(payload).length > 0) {
+          await docRef.set(payload, { merge: true });
+        }
+
+        localStorage.setItem(OWNER_KEY, user.uid);
+        wrapStorage(docRef);
+        window.__cloudSyncError = null;
+      } catch (err) {
+        console.error("firebase-wrapper: load/migrate error", err);
+        window.__cloudSyncError = (err && (err.code || err.message)) || "sync-failed";
+        wrapStorage(null);            // keep working locally
+      }
+
+      finish();
+    });
+
+    console.log("firebase-wrapper: initialized");
+  }
+
+  start();
 })();
