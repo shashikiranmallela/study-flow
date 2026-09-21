@@ -87,7 +87,8 @@
     aurora:    { idle: ['#7f6bff', '#ff7ad1', '#4fe3ff'], bg: ['#5b3df5', '#0fb3d9'] },
     sunset:    { idle: ['#ff7a59', '#ffc14d', '#ff5c8a'], bg: ['#ff5c8a', '#ff9a3c'] },
     matcha:    { idle: ['#43d9a3', '#b8f26b', '#3ab7ff'], bg: ['#1fb98a', '#7bd63a'] },
-    bubblegum: { idle: ['#ff6fb5', '#8c7bff', '#6fd8ff'], bg: ['#ff4fa3', '#6a5cff'] }
+    bubblegum: { idle: ['#ff6fb5', '#8c7bff', '#6fd8ff'], bg: ['#ff4fa3', '#6a5cff'] },
+    system:    { idle: ['#2f7bff', '#8a5cff', '#3fd0ff'], bg: ['#1b3bd6', '#6a2bd6'] }
   };
   const STATE_PAL = {
     focus: ['#ff6b5e', '#ffb04a', '#ff5fa2'],
@@ -206,7 +207,7 @@
     S.sessions.forEach((s) => { if (s.type === 'study') t += s.duration || 0; });
     return t;
   }
-  const xpTotal = () => Math.floor(totalStudySec() / 60) + 5 * (S.settings.tasksDone || 0);
+  const xpTotal = () => Math.floor(totalStudySec() / 60) + 5 * (S.settings.tasksDone || 0) + Math.floor((S.settings.hunter && Number(S.settings.hunter.bonusXp)) || 0);
   function levelInfo(xp) {
     const level = Math.floor(Math.sqrt(xp / 60)) + 1;
     const base = 60 * Math.pow(level - 1, 2);
@@ -317,7 +318,7 @@
   }
   function renderChrome() {
     const li = levelInfo(xpTotal());
-    $('#levelChipText').textContent = 'Lv ' + li.level;
+    $('#levelChipText').textContent = 'Lv ' + li.level + (window.SF && window.SF.system ? ' · ' + window.SF.system.rank() : '');
     $('#levelChipBar').style.width = Math.round(li.pct * 100) + '%';
     $('#username').textContent = getName();
     renderAuth();
@@ -337,7 +338,7 @@
   // ------------------------------------------------------------
   // routing
   // ------------------------------------------------------------
-  const PAGES = ['home', 'focus', 'tasks', 'planner', 'insights'];
+  const PAGES = ['home', 'focus', 'tasks', 'planner', 'insights', 'system'];
 
   function navigate(page) {
     if (location.hash.slice(1) === page) show(page);
@@ -370,6 +371,11 @@
       } else {
         try { window.SF.insights.render(); } catch (e) { console.error(e); sub.textContent = 'Insights error: ' + (e && e.message); sub.style.color = 'var(--ember)'; }
       }
+    }
+    else if (page === 'system') {
+      const m = $('#sysMsg');
+      if (!window.SF || !window.SF.system) { m.hidden = false; m.textContent = 'The System failed to start. Hard refresh (Ctrl+Shift+R), or re-upload script.js and index.html.'; }
+      else { try { window.SF.system.render(); } catch (e) { console.error(e); m.hidden = false; m.textContent = 'System error: ' + (e && e.message); } }
     }
     if (window.SFX) window.SFX.tilt(document);
   }
@@ -520,6 +526,7 @@
     ts.isRunning = true;
     saveTimer();
     T.interval = setInterval(tick, 500);
+    if (!resume && window.SF && window.SF.system) window.SF.system.onStart();
     applyOrbLook();
     updateTimerUI();
   }
@@ -540,13 +547,15 @@
   function logSession(sec) {
     if (sec <= 0) return null;
     const before = levelInfo(xpTotal());
-    S.sessions.push({
+    const entry = {
       date: new Date().toISOString(),
       duration: sec,
       type: S.timer.isBreak ? 'break' : 'study',
       task: S.timer.isBreak ? null : (S.timer.currentTask || null)
-    });
+    };
+    S.sessions.push(entry);
     saveSessions();
+    if (window.SF && window.SF.system) { try { window.SF.system.onSession(entry); } catch (e) { console.error(e); } }
     return { before: before, after: levelInfo(xpTotal()), sec: sec, wasBreak: S.timer.isBreak };
   }
   function resetTimerValues() {
@@ -558,6 +567,7 @@
     if (!r || r.wasBreak) return;
     const xp = Math.floor(r.sec / 60);
     if (r.after.level > r.before.level) {
+      if (window.SF && window.SF.system) window.SF.system.levelUp(r.before, r.after);
       showToast('Level up! You are now level ' + r.after.level + ', ' + r.after.name + '.' + (extra || ''), 4800);
       if (window.SFX) window.SFX.Confetti.burst(window.innerWidth / 2, window.innerHeight * 0.4, 160, { spread: 22, up: 18 });
     } else {
@@ -754,6 +764,7 @@
       showToast('Task done (+5 XP)', 2200);
       if (window.SFX) window.SFX.Confetti.burst(x || window.innerWidth / 2, y || window.innerHeight / 2, 46, { spread: 9, up: 9 });
       if (window.SF && window.SF.badges) window.SF.badges.checkNew();
+      if (window.SF && window.SF.system) window.SF.system.check();
     }
     refreshAll();
   }
@@ -1144,7 +1155,7 @@
       }
       const tag = (e.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key >= '1' && e.key <= '5') navigate(PAGES[+e.key - 1]);
+      if (e.key >= '1' && e.key <= '6') navigate(PAGES[+e.key - 1]);
       else if (e.key === ' ' && currentPage === 'focus' && tag !== 'button' && tag !== 'a') { e.preventDefault(); toggleTimer(); }
       else if (e.key.toLowerCase() === 'f' && currentPage === 'focus') enterZen();
     });
@@ -1164,6 +1175,7 @@
       loadAll();
       applyLook();
       resumeTimer();
+      if (window.SF && window.SF.system) window.SF.system.init();
       refreshAll();
     });
 
@@ -1215,6 +1227,8 @@
     booted = true;
 
     if (window.SF && window.SF.badges) window.SF.badges.init();
+    if (window.SF && window.SF.system) window.SF.system.init();
+    renderChrome();
     if (window.__cloudSyncError && getUser()) showToast('Cloud sync is having trouble. Your data is saved on this device.', 5000);
 
     const loader = $('#loader');
@@ -1229,7 +1243,7 @@
     S: S, storage: storage, $: $, $$: $$, esc: esc, pad2: pad2, dayKey: dayKey, parseKey: parseKey, clamp: clamp, ico: ico,
     fmtShort: fmtShort, timeAgo: timeAgo, studyDaily: studyDaily, streaks: streaks, levelInfo: levelInfo, xpTotal: xpTotal,
     totalStudySec: totalStudySec, barChart: barChart, toast: showToast, navigate: navigate, saveSessions: saveSessions,
-    reload: refreshAll, reduceMotion: reduceMotion
+    reload: refreshAll, reduceMotion: reduceMotion, focusOn: focusOn, renderChrome: renderChrome, saveSettings: saveSettings, applyLook: applyLook
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
@@ -1844,4 +1858,761 @@
   wire();
   SF.insights = { render: render };
   SF.badges = badges;
+})();
+
+/* ============================================================
+   THE SYSTEM  -  daily quests, hunter stats, ranks + trials,
+   gates (boss fights) and the shadow legion.
+   Lives at the end of script.js. Everything is derived from the
+   study data you already have; the game state is stored inside the
+   synced `settings.hunter` object, so it follows you across devices.
+   All names, art and mechanics here are original.
+   ============================================================ */
+(function () {
+  'use strict';
+  const SF = window.SF;
+  if (!SF) { console.error('System: SF missing'); return; }
+  const { S, $, $$, esc, pad2, dayKey, clamp, fmtShort } = SF;
+  const reduce = SF.reduceMotion;
+
+  // ------------------------------------------------------------
+  // data
+  // ------------------------------------------------------------
+  const RANKS = ['E', 'D', 'C', 'B', 'A', 'S'];
+  const RANK_TITLES = { E: 'Awakened Novice', D: 'Gate Runner', C: 'Dungeon Regular', B: 'Elite Hunter', A: 'Shadow Vanguard', S: 'Sovereign of Dusk' };
+  const TRIALS = { D: { level: 3, min: 30 }, C: { level: 6, min: 45 }, B: { level: 10, min: 60 }, A: { level: 15, min: 90 }, S: { level: 22, min: 120 } };
+  const RANK_XP = { D: 100, C: 200, B: 400, A: 800, S: 1500 };
+
+  const SHADOWS = [
+    { id: 'scout', name: 'Ashen Scout', title: 'The first to answer', kind: 'blade', scale: 0.8, hint: 'Log your first study session', bonus: { xp: 0.02 }, test: (c) => c.sessions >= 1 },
+    { id: 'blade', name: 'Nightblade', title: 'Cuts distractions in half', kind: 'blade', scale: 0.95, hint: 'Reach a 3-day streak', bonus: { xp: 0.02 }, test: (c) => c.best >= 3 },
+    { id: 'archer', name: 'Hollow Archer', title: 'Never misses a deadline', kind: 'bow', scale: 0.95, hint: 'Complete 10 tasks', bonus: { quest: 0.05 }, test: (c) => c.tasks >= 10 },
+    { id: 'warden', name: 'Grave Warden', title: 'Guards your routine', kind: 'shield', scale: 1.0, hint: 'Reach a 7-day streak', bonus: { xp: 0.03 }, test: (c) => c.best >= 7 },
+    { id: 'spear', name: 'Duskspear', title: 'Pierces the syllabus', kind: 'spear', scale: 1.05, hint: 'Study 10 hours in total', bonus: { xp: 0.03 }, test: (c) => c.totalSec >= 36000 },
+    { id: 'knight', name: 'Umbral Knight', title: 'Unbroken focus', kind: 'sword', scale: 1.15, hint: 'Finish a 60-minute session without leaving the tab', bonus: { xp: 0.03 }, test: (c) => c.clean >= 3600 },
+    { id: 'caller', name: 'Voidcaller', title: 'Answers the daily call', kind: 'staff', scale: 1.1, eye: '#93c5fd', hint: 'Clear all daily quests 3 times', bonus: { quest: 0.08 }, test: (c) => c.clears >= 3 },
+    { id: 'sentinel', name: 'Rift Sentinel', title: 'Holds the gate', kind: 'shield', scale: 1.2, hint: 'Reach hunter rank D', bonus: { xp: 0.04 }, test: (c) => c.rank >= 1 },
+    { id: 'reaper', name: 'Gate Reaper', title: 'Harvests fallen bosses', kind: 'scythe', scale: 1.2, eye: '#fca5a5', hint: 'Clear a gate', bonus: { xp: 0.04 }, test: (c) => c.gates >= 1 },
+    { id: 'marshal', name: 'Ebon Marshal', title: 'Commands the night shift', kind: 'axe', scale: 1.3, hint: 'Reach rank C and study 50 hours', bonus: { xp: 0.05 }, test: (c) => c.rank >= 2 && c.totalSec >= 180000 },
+    { id: 'colossus', name: 'Wraith Colossus', title: 'Heavier than any exam', kind: 'club', scale: 1.6, hint: 'Study 100 hours in total', bonus: { xp: 0.05 }, test: (c) => c.totalSec >= 360000 },
+    { id: 'general', name: 'Nightfall General', title: 'Leads from the front', kind: 'sword', scale: 1.5, hint: 'Reach hunter rank B', bonus: { xp: 0.06 }, test: (c) => c.rank >= 3 },
+    { id: 'sovereign', name: 'Sovereign of Dusk', title: 'Crowned by discipline', kind: 'crown', scale: 1.85, eye: '#f0abfc', hint: 'Reach hunter rank S', bonus: { xp: 0.1 }, test: (c) => c.rank >= 5 }
+  ];
+
+  // ------------------------------------------------------------
+  // persisted state (inside settings.hunter, synced with the rest)
+  // ------------------------------------------------------------
+  let inited = false;
+  const ready = () => inited && !!S.settings;
+  function H() {
+    const st = S.settings;
+    if (!st.hunter || typeof st.hunter !== 'object') st.hunter = {};
+    const h = st.hunter;
+    if (!RANKS.includes(h.rank)) h.rank = 'E';
+    if (!h.quests || typeof h.quests !== 'object') h.quests = { date: null, list: [], cleanMax: 0, allClear: false, penalty: null };
+    if (!Array.isArray(h.quests.list)) h.quests.list = [];
+    if (!Array.isArray(h.shadows)) h.shadows = [];
+    if (!Array.isArray(h.gates)) h.gates = [];
+    ['bonusXp', 'clearDays', 'cleanBest', 'gatesCleared'].forEach((k) => { h[k] = Number(h[k]) || 0; });
+    if (h.trial === undefined) h.trial = null;
+    return h;
+  }
+  const save = () => SF.saveSettings();
+  const today = () => dayKey(new Date());
+  const fmtMin = (m) => (m >= 60 ? Math.floor(m / 60) + 'h' + (m % 60 ? ' ' + (m % 60) + 'm' : '') : m + ' min');
+
+  // ------------------------------------------------------------
+  // focus integrity (leaving the tab while a study session runs)
+  // ------------------------------------------------------------
+  let run = { breaks: 0, away: 0, hiddenAt: 0 };
+  try { const r = JSON.parse(sessionStorage.getItem('sf_run')); if (r && typeof r === 'object') run = Object.assign(run, r); } catch (e) { /* ignore */ }
+  const persistRun = () => { try { sessionStorage.setItem('sf_run', JSON.stringify(run)); } catch (e) { /* ignore */ } };
+  document.addEventListener('visibilitychange', () => {
+    const t = S.timer;
+    if (!t || !t.isRunning || t.isBreak) return;
+    if (document.hidden) { run.hiddenAt = Date.now(); persistRun(); return; }
+    if (run.hiddenAt) {
+      const away = Date.now() - run.hiddenAt;
+      run.hiddenAt = 0;
+      if (away > 10000) { run.breaks++; run.away += away; notice('Focus broken', ['You left the tab for ' + Math.round(away / 1000) + 's'], 'warn'); }
+      persistRun();
+    }
+  });
+
+  // ------------------------------------------------------------
+  // sound (uses the same "chime" switch as the timer)
+  // ------------------------------------------------------------
+  let ac = null;
+  function A() {
+    if (!S.settings.chime) return null;
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return null;
+    if (!ac) ac = new C();
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(f, t0, dur, type, vol, f2) {
+    const c = A(); if (!c) return;
+    const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + t0;
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function rumble(t0, dur, vol) {
+    const c = A(); if (!c) return;
+    const n = c.sampleRate * dur, b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < n; i++) { last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03; d[i] = last * 4; }
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(), t = c.currentTime + t0;
+    s.buffer = b; f.type = 'lowpass'; f.frequency.value = 160;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(c.destination); s.start(t);
+  }
+  const sfxBlip = () => { tone(880, 0, 0.09, 'square', 0.03); tone(1320, 0.08, 0.12, 'square', 0.03); };
+  const sfxLevel = () => { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, i * 0.09, 0.5, 'triangle', 0.07)); };
+  function sfxArise() {
+    rumble(0, 2.6, 0.7); tone(58, 0.1, 1.8, 'sine', 0.5, 28); tone(116, 0.9, 1.2, 'sawtooth', 0.05, 60);
+    [392, 494, 587, 784].forEach((f, i) => tone(f, 2.0 + i * 0.12, 1.4, 'triangle', 0.06));
+  }
+
+  // ------------------------------------------------------------
+  // system notices (the blue holo windows)
+  // ------------------------------------------------------------
+  function notice(title, lines, kind) {
+    const box = $('#sysNotices');
+    if (!box) return;
+    const el = document.createElement('div');
+    el.className = 'sys-notice ' + (kind || 'info');
+    el.innerHTML = '<b>[' + esc(title) + ']</b>' + (lines || []).map((l) => '<span>' + esc(l) + '</span>').join('');
+    box.appendChild(el);
+    sfxBlip();
+    setTimeout(() => el.classList.add('out'), 5200);
+    setTimeout(() => el.remove(), 5800);
+    while (box.children.length > 4) box.firstChild.remove();
+  }
+
+  // ------------------------------------------------------------
+  // bonuses / XP
+  // ------------------------------------------------------------
+  const cursed = () => { const p = H().quests.penalty; return !!(p && !p.done); };
+  function bonus(kind) {
+    let b = 0;
+    H().shadows.forEach((id) => { const sh = SHADOWS.find((x) => x.id === id); if (sh && sh.bonus[kind]) b += sh.bonus[kind]; });
+    return b;
+  }
+  const questMult = () => (cursed() ? 0.5 : 1) * (1 + bonus('quest'));
+  function award(xp) {
+    const before = SF.levelInfo(SF.xpTotal());
+    H().bonusXp += xp;
+    save();
+    const after = SF.levelInfo(SF.xpTotal());
+    if (after.level > before.level) levelUp(before, after);
+    if (SF.renderChrome) SF.renderChrome();
+  }
+  function levelUp(before, after) {
+    const h = H();
+    const lines = ['Level ' + after.level + ': ' + after.name, 'Stats recalculated'];
+    const nr = RANKS[RANKS.indexOf(h.rank) + 1];
+    if (nr && after.level >= TRIALS[nr].level && before.level < TRIALS[nr].level) lines.push('Rank ' + nr + ' trial unlocked');
+    notice('LEVEL UP', lines, 'level');
+    sfxLevel();
+    if (window.SFX) window.SFX.Confetti.burst(window.innerWidth / 2, window.innerHeight * 0.35, 120, { colors: ['#4aa8ff', '#8a5cff', '#7cc4ff', '#c4b5fd'] });
+    const app = $('#app');
+    if (app && !reduce) { app.classList.remove('shake'); void app.offsetWidth; app.classList.add('shake'); }
+  }
+
+  // ------------------------------------------------------------
+  // daily quests
+  // ------------------------------------------------------------
+  function makeQuests() {
+    const lv = SF.levelInfo(SF.xpTotal()).level;
+    const studyMin = clamp(Math.round((45 + lv * 5) / 15) * 15, 45, 180);
+    const cleanMin = clamp(Math.round((20 + lv * 2) / 5) * 5, 20, 60);
+    return [
+      { id: 'study', label: 'Study for ' + fmtMin(studyMin), target: studyMin * 60, xp: 30, done: false },
+      { id: 'tasks', label: 'Complete 2 tasks', target: 2, xp: 30, done: false },
+      { id: 'clean', label: 'One ' + cleanMin + '-minute session without leaving the tab', target: cleanMin * 60, xp: 30, done: false }
+    ];
+  }
+  // returns { isNew, penalty } when a new day starts
+  function ensureQuests() {
+    const h = H(), q = h.quests, t = today();
+    if (q.date === t) return null;
+    const hadPrev = !!(q.date && q.list.length);
+    let penalty = null;
+    if (hadPrev && !q.list.every((x) => x.done)) penalty = { target: 25 * 60, done: false };
+    else if (q.penalty && !q.penalty.done) penalty = { target: 25 * 60, done: false };
+    h.quests = { date: t, list: makeQuests(), cleanMax: 0, allClear: false, penalty: penalty };
+    save();
+    return { first: !hadPrev, penalty: !!penalty };
+  }
+  function todayStats() {
+    const key = today();
+    let study = 0;
+    S.sessions.forEach((s) => { if (s.type === 'study' && dayKey(new Date(s.date)) === key) study += s.duration || 0; });
+    const tasks = S.todos.filter((t) => t.completed && t.completedAt && dayKey(new Date(t.completedAt)) === key).length;
+    return { study: study, tasks: tasks, clean: H().quests.cleanMax || 0 };
+  }
+  const questValue = (x, ts) => (x.id === 'study' ? ts.study : x.id === 'tasks' ? ts.tasks : ts.clean);
+
+  // ------------------------------------------------------------
+  // stats (all derived, nothing to fake)
+  // ------------------------------------------------------------
+  function computeStats() {
+    const now = Date.now(), d14 = now - 14 * 864e5, d30 = now - 30 * 864e5;
+    const study = S.sessions.filter((s) => s.type === 'study');
+    const recent = study.filter((s) => new Date(s.date).getTime() >= d14);
+    const recentSec = recent.reduce((t, s) => t + s.duration, 0);
+    const avgMin = recent.length ? recentSec / recent.length / 60 : 0;
+    const hours = SF.totalStudySec() / 3600;
+    const daily = SF.studyDaily();
+    let active30 = 0;
+    for (let i = 0; i < 30; i++) { const d = new Date(); d.setDate(d.getDate() - i); if (daily.get(dayKey(d)) > 0) active30++; }
+    const st = SF.streaks(daily);
+    const tasks30 = S.todos.filter((t) => t.completed && t.completedAt && new Date(t.completedAt).getTime() >= d30).length;
+    const breakSec = S.sessions.filter((s) => s.type === 'break' && new Date(s.date).getTime() >= d14).reduce((t, s) => t + s.duration, 0);
+    const ratio = recentSec ? breakSec / recentSec : 0;
+    return [
+      { k: 'FOCUS', v: clamp((avgMin / 75) * 100, 0, 100) },
+      { k: 'KNOWLEDGE', v: 100 * (1 - Math.exp(-hours / 150)) },
+      { k: 'DISCIPLINE', v: clamp((active30 / 30) * 70 + (Math.min(st.current, 30) / 30) * 30, 0, 100) },
+      { k: 'SPEED', v: clamp((tasks30 / 30) * 100, 0, 100) },
+      { k: 'RECOVERY', v: recentSec ? clamp(100 - (Math.abs(ratio - 0.2) / 0.2) * 100, 0, 100) : 0 }
+    ];
+  }
+
+  // ------------------------------------------------------------
+  // gates (boss fights)
+  // ------------------------------------------------------------
+  const gateRank = (hrs) => (hrs < 5 ? 'E' : hrs < 12 ? 'D' : hrs < 25 ? 'C' : hrs < 50 ? 'B' : hrs < 100 ? 'A' : 'S');
+  function gateState(g) {
+    const subj = String(g.subject).trim().toLowerCase();
+    const start = new Date(g.created);
+    const startKey = dayKey(start);
+    const perDay = new Map();
+    let dmg = 0;
+    S.sessions.forEach((s) => {
+      if (s.type !== 'study' || !s.task || String(s.task).trim().toLowerCase() !== subj) return;
+      if (new Date(s.date) < start) return;
+      dmg += s.duration;
+      const k = dayKey(new Date(s.date));
+      perDay.set(k, (perDay.get(k) || 0) + s.duration);
+    });
+    const total = g.hours * 3600;
+    let missed = 0;
+    const d = parseKeySafe(startKey), end = new Date(); end.setHours(0, 0, 0, 0);
+    for (; d < end; d.setDate(d.getDate() + 1)) if (!(perDay.get(dayKey(d)) > 0)) missed++;
+    const regen = Math.min(0.3, missed * 0.03) * total;
+    const max = total + regen;
+    const left = Math.max(0, max - dmg);
+    let daysLeft = null;
+    if (g.exam) { const e = parseKeySafe(g.exam), n = new Date(); n.setHours(0, 0, 0, 0); daysLeft = Math.round((e - n) / 864e5); }
+    return { total: total, max: max, left: left, dmg: dmg, regen: regen, frac: max ? left / max : 0, daysLeft: daysLeft };
+  }
+  function parseKeySafe(k) { const p = String(k).split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); }
+
+  // ------------------------------------------------------------
+  // shadows
+  // ------------------------------------------------------------
+  function ctxData() {
+    const daily = SF.studyDaily(), st = SF.streaks(daily), h = H();
+    return {
+      totalSec: SF.totalStudySec(), best: st.best, tasks: S.settings.tasksDone || 0,
+      sessions: S.sessions.filter((s) => s.type === 'study').length, clean: h.cleanBest,
+      rank: RANKS.indexOf(h.rank), clears: h.clearDays, gates: h.gatesCleared
+    };
+  }
+  function checkShadows() {
+    const h = H(), c = ctxData(), fresh = [];
+    SHADOWS.forEach((sh) => { if (!h.shadows.includes(sh.id) && sh.test(c)) { h.shadows.push(sh.id); fresh.push(sh); } });
+    if (!fresh.length) return false;
+    fresh.slice(0, 3).forEach((sh) => queueCine({ type: 'arise', shadow: sh }));
+    if (fresh.length > 3) notice('Legion', ['+' + (fresh.length - 3) + ' more shadows joined your legion'], 'level');
+    return true;
+  }
+
+  // ------------------------------------------------------------
+  // the check: run after anything that could progress the game
+  // ------------------------------------------------------------
+  function check() {
+    if (!ready()) return;
+    ensureQuests();
+    const h = H(), q = h.quests, ts = todayStats();
+    let changed = false;
+
+    q.list.forEach((x) => {
+      if (!x.done && questValue(x, ts) >= x.target) {
+        x.done = true; changed = true;
+        const gain = Math.round(x.xp * questMult());
+        award(gain);
+        notice('Quest complete', [x.label, '+' + gain + ' XP'], 'quest');
+      }
+    });
+    if (!q.allClear && q.list.length && q.list.every((x) => x.done)) {
+      q.allClear = true; h.clearDays++; changed = true;
+      const gain = Math.round(100 * questMult());
+      award(gain);
+      notice('Daily clear', ['All quests completed', '+' + gain + ' XP bonus'], 'quest');
+    }
+    if (q.penalty && !q.penalty.done && ts.clean >= q.penalty.target) {
+      q.penalty.done = true; changed = true;
+      award(20);
+      notice('Penalty cleared', ['The curse is lifted.'], 'quest');
+    }
+    h.gates.forEach((g) => {
+      if (g.status !== 'active') return;
+      const st = gateState(g);
+      if (st.left <= 0) {
+        g.status = 'cleared'; g.clearedAt = new Date().toISOString(); h.gatesCleared++; changed = true;
+        const xp = Math.round(g.hours * 15);
+        award(xp);
+        queueCine({ type: 'gate', name: g.subject, xp: xp });
+      } else if (g.exam && g.exam < today()) {
+        g.status = 'failed'; changed = true;
+        notice('Gate collapsed', [g.subject + ': the exam date passed'], 'warn');
+      }
+    });
+    if (checkShadows()) changed = true;
+    if (changed) save();
+    if (SF.renderChrome) SF.renderChrome();
+    if (document.body.dataset.page === 'system') render();
+  }
+
+  // ------------------------------------------------------------
+  // hooks called by the app
+  // ------------------------------------------------------------
+  function onStart() {
+    run = { breaks: 0, away: 0, hiddenAt: 0 };
+    persistRun();
+    const t = H().trial;
+    if (t) notice('Trial active', ['Rank ' + t.rank + ': stay in this tab for ' + t.min + ' minutes'], 'warn');
+  }
+  function onSession(s) {
+    if (!ready()) return;
+    const h = H();
+    ensureQuests();
+    const q = h.quests;
+    if (s.type === 'study') {
+      const dur = s.duration || 0, clean = run.breaks === 0;
+      if (clean) { q.cleanMax = Math.max(q.cleanMax || 0, dur); h.cleanBest = Math.max(h.cleanBest, dur); }
+      const extra = cursed() ? 0 : Math.floor((dur / 60) * bonus('xp'));
+      if (extra > 0) h.bonusXp += extra;
+      if (h.trial) {
+        const need = h.trial.min * 60;
+        if (dur >= need && clean) {
+          const nr = h.trial.rank;
+          h.rank = nr; h.trial = null; h.bonusXp += RANK_XP[nr];
+          queueCine({ type: 'rank', rank: nr });
+        } else if (dur >= need) {
+          setTimeout(() => notice('Trial failed', ['You left the tab. The trial stays open.'], 'warn'), 700);
+        } else if (dur >= 120) {
+          setTimeout(() => notice('Trial unfinished', ['That session was shorter than ' + h.trial.min + ' minutes.'], 'warn'), 700);
+        }
+      }
+      if (dur >= 300) {
+        const integ = clamp(1 - run.away / 1000 / dur, 0, 1);
+        setTimeout(() => notice('Focus report', [Math.round(integ * 100) + '% focus integrity', run.breaks ? run.breaks + ' distraction' + (run.breaks > 1 ? 's' : '') : 'No distractions'], run.breaks ? 'warn' : 'info'), 500);
+      }
+    }
+    run = { breaks: 0, away: 0, hiddenAt: 0 };
+    persistRun();
+    save();
+    setTimeout(check, 1400);
+  }
+
+  // ------------------------------------------------------------
+  // figure drawing (original hooded shadow soldiers + boss)
+  // ------------------------------------------------------------
+  function weapon(g, x, y, h, kind, rim) {
+    const hx = x + h * 0.2, hy = y - h * 0.46;
+    g.save();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(221,196,255,.95)'; g.fillStyle = 'rgba(221,196,255,.95)';
+    g.shadowColor = 'rgba(' + rim + ',1)'; g.shadowBlur = h * 0.05; g.lineWidth = Math.max(2, h * 0.02);
+    const line = (x1, y1, x2, y2) => { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
+    switch (kind) {
+      case 'sword': case 'crown':
+        line(hx, hy + h * 0.1, hx + h * 0.05, hy - h * 0.55); line(hx - h * 0.05, hy, hx + h * 0.08, hy - h * 0.02); break;
+      case 'blade':
+        line(hx, hy + h * 0.05, hx + h * 0.04, hy - h * 0.28); line(x - h * 0.2, hy + h * 0.05, x - h * 0.24, hy - h * 0.26); break;
+      case 'spear':
+        line(hx, hy + h * 0.28, hx + h * 0.03, hy - h * 0.66);
+        g.beginPath(); g.moveTo(hx + h * 0.03, hy - h * 0.78); g.lineTo(hx - h * 0.02, hy - h * 0.62); g.lineTo(hx + h * 0.08, hy - h * 0.62); g.closePath(); g.fill(); break;
+      case 'bow':
+        g.beginPath(); g.arc(hx - h * 0.1, hy - h * 0.1, h * 0.32, -1.15, 1.15); g.stroke();
+        g.lineWidth = Math.max(1, h * 0.006); line(hx - h * 0.1 + Math.cos(-1.15) * h * 0.32, hy - h * 0.1 + Math.sin(-1.15) * h * 0.32, hx - h * 0.1 + Math.cos(1.15) * h * 0.32, hy - h * 0.1 + Math.sin(1.15) * h * 0.32); break;
+      case 'shield':
+        g.beginPath(); g.ellipse(x - h * 0.22, y - h * 0.42, h * 0.1, h * 0.15, 0, 0, 6.283); g.fillStyle = 'rgba(30,12,60,.95)'; g.fill(); g.stroke();
+        line(hx, hy + h * 0.06, hx + h * 0.04, hy - h * 0.34); break;
+      case 'staff':
+        line(hx, hy + h * 0.3, hx + h * 0.02, hy - h * 0.62);
+        g.beginPath(); g.arc(hx + h * 0.02, hy - h * 0.68, h * 0.04, 0, 6.283); g.fill(); break;
+      case 'scythe':
+        line(hx, hy + h * 0.3, hx + h * 0.03, hy - h * 0.6);
+        g.beginPath(); g.arc(hx - h * 0.1, hy - h * 0.6, h * 0.14, -0.3, 2.6, false); g.stroke(); break;
+      case 'axe':
+        line(hx, hy + h * 0.28, hx + h * 0.03, hy - h * 0.5);
+        g.beginPath(); g.moveTo(hx + h * 0.03, hy - h * 0.5); g.quadraticCurveTo(hx + h * 0.2, hy - h * 0.56, hx + h * 0.16, hy - h * 0.32); g.lineTo(hx + h * 0.03, hy - h * 0.4); g.closePath(); g.fill(); break;
+      case 'club':
+        g.lineWidth = Math.max(4, h * 0.04); line(hx, hy + h * 0.2, hx + h * 0.05, hy - h * 0.5); break;
+      default: break;
+    }
+    g.restore();
+  }
+
+  function drawFigure(g, x, y, h, o) {
+    o = o || {};
+    const t = o.t || 0, alpha = o.alpha == null ? 1 : o.alpha, boss = !!o.boss;
+    const rim = boss ? '255,70,96' : '168,85,247';
+    g.save();
+    g.globalAlpha = alpha;
+    const ag = g.createRadialGradient(x, y - h * 0.5, h * 0.05, x, y - h * 0.5, h * 0.9);
+    ag.addColorStop(0, 'rgba(' + rim + ',.32)'); ag.addColorStop(1, 'rgba(' + rim + ',0)');
+    g.fillStyle = ag; g.beginPath(); g.arc(x, y - h * 0.5, h * 0.9, 0, 6.283); g.fill();
+
+    const w = h * (boss ? 0.36 : 0.3), sh = h * 0.15, hy = y - h * 0.8, hr = h * 0.075;
+    g.beginPath();
+    g.moveTo(x - sh, y - h * 0.68);
+    g.bezierCurveTo(x - sh * 1.3, y - h * 0.45, x - w * 1.1, y - h * 0.2, x - w, y);
+    const n = 7;
+    for (let i = 1; i <= n; i++) g.lineTo(x - w + (2 * w * i) / n, y + Math.sin(t * 2 + i * 1.7) * h * 0.012 + (i % 2 ? h * 0.02 : 0));
+    g.bezierCurveTo(x + w * 1.1, y - h * 0.2, x + sh * 1.3, y - h * 0.45, x + sh, y - h * 0.68);
+    g.bezierCurveTo(x + sh * 0.9, y - h * 0.74, x + hr * 1.5, y - h * 0.72, x + hr * 1.15, y - h * 0.8);
+    g.bezierCurveTo(x + hr * 1.1, y - h * 0.9, x - hr * 1.1, y - h * 0.9, x - hr * 1.15, y - h * 0.8);
+    g.bezierCurveTo(x - hr * 1.5, y - h * 0.72, x - sh * 0.9, y - h * 0.74, x - sh, y - h * 0.68);
+    g.closePath();
+    const bg = g.createLinearGradient(0, y - h, 0, y);
+    bg.addColorStop(0, boss ? '#3a0d1c' : '#241246'); bg.addColorStop(0.5, boss ? '#1a0510' : '#0d0620'); bg.addColorStop(1, '#04010a');
+    g.fillStyle = bg; g.shadowColor = 'rgba(' + rim + ',.9)'; g.shadowBlur = h * 0.09; g.fill();
+    g.shadowBlur = 0; g.lineWidth = Math.max(1, h * 0.008); g.strokeStyle = 'rgba(' + rim + ',.8)'; g.stroke();
+
+    if (boss || o.horns) {
+      g.strokeStyle = 'rgba(' + rim + ',.95)'; g.lineWidth = Math.max(2, h * 0.02); g.lineCap = 'round';
+      [-1, 1].forEach((s) => { g.beginPath(); g.moveTo(x + s * hr * 0.9, hy - hr * 0.7); g.quadraticCurveTo(x + s * hr * 2.6, hy - hr * 1.2, x + s * hr * 2.2, hy - hr * 3.4); g.stroke(); });
+    }
+    if (o.kind === 'crown') {
+      g.fillStyle = 'rgba(240,171,252,.95)'; g.shadowColor = 'rgba(240,171,252,1)'; g.shadowBlur = h * 0.05;
+      g.beginPath(); g.moveTo(x - hr * 1.2, hy - hr * 1.2); g.lineTo(x - hr * 1.2, hy - hr * 2.3); g.lineTo(x - hr * 0.5, hy - hr * 1.6); g.lineTo(x, hy - hr * 2.6);
+      g.lineTo(x + hr * 0.5, hy - hr * 1.6); g.lineTo(x + hr * 1.2, hy - hr * 2.3); g.lineTo(x + hr * 1.2, hy - hr * 1.2); g.closePath(); g.fill(); g.shadowBlur = 0;
+    }
+    const eye = o.eye || (boss ? '#ff4d6d' : '#c4b5fd');
+    g.fillStyle = eye; g.shadowColor = eye; g.shadowBlur = h * 0.06;
+    [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(x + s * hr * 0.42, hy, hr * 0.3, hr * 0.1, s * 0.25, 0, 6.283); g.fill(); });
+    g.shadowBlur = 0;
+
+    weapon(g, x, y, h, boss ? 'club' : o.kind, rim);
+
+    for (let i = 0; i < 4; i++) {
+      const ph = (t * 0.3 + i * 0.25) % 1;
+      g.globalAlpha = alpha * (1 - ph) * 0.35; g.fillStyle = 'rgba(' + rim + ',1)';
+      g.beginPath(); g.ellipse(x + Math.sin(ph * 6 + i * 2) * w * 0.8, y - ph * h * 0.5, h * 0.05 * (1 + ph), h * 0.028 * (1 + ph), 0, 0, 6.283); g.fill();
+    }
+    g.restore();
+  }
+
+  // ------------------------------------------------------------
+  // cinematics (ARISE / RANK UP / GATE CLEARED)
+  // ------------------------------------------------------------
+  const cine = { q: [], busy: false };
+  function queueCine(it) { cine.q.push(it); pump(); }
+  function pump() {
+    if (cine.busy || !cine.q.length) return;
+    cine.busy = true;
+    play(cine.q.shift()).then(() => { cine.busy = false; setTimeout(pump, 250); });
+  }
+  const bonusText = (b) => Object.keys(b || {}).map((k) => '+' + Math.round(b[k] * 100) + '% ' + (k === 'xp' ? 'session XP' : 'quest XP')).join('  ');
+
+  function play(it) {
+    return new Promise((resolve) => {
+      const ov = $('#arise');
+      if (!ov) { resolve(); return; }
+      const cv = $('#ariseCanvas'), g = cv.getContext('2d');
+      let cfg;
+      if (it.type === 'arise') cfg = { word: 'ARISE', kicker: 'Shadow extracted', name: it.shadow.name, sub: it.shadow.title, extra: bonusText(it.shadow.bonus), spec: { kind: it.shadow.kind, eye: it.shadow.eye }, scale: it.shadow.scale };
+      else if (it.type === 'rank') cfg = { word: 'RANK UP', kicker: 'Hunter rank', name: 'Rank ' + it.rank, sub: RANK_TITLES[it.rank], extra: '+' + RANK_XP[it.rank] + ' XP', badge: it.rank };
+      else cfg = { word: 'GATE CLEARED', kicker: 'Boss defeated', name: it.name, sub: '+' + it.xp + ' XP', extra: '', spec: { boss: true }, scale: 1.3, dissolve: true };
+
+      $('#ariseWord').textContent = cfg.word;
+      $('#ariseKicker').textContent = cfg.kicker;
+      $('#ariseName').textContent = cfg.name;
+      $('#ariseTitle').textContent = cfg.sub;
+      $('#ariseBonus').textContent = cfg.extra || '';
+      const badge = $('#ariseBadge');
+      badge.textContent = cfg.badge || '';
+      badge.className = 'arise-badge' + (cfg.badge ? ' show rank-' + cfg.badge : '');
+      $('#ariseWord').className = 'arise-word';
+      $('#ariseCard').className = 'arise-card';
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const W = window.innerWidth, Hh = window.innerHeight;
+      cv.width = W * dpr; cv.height = Hh * dpr;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const ground = Hh * 0.7, figH = Math.min(Hh * 0.44, 400) * clamp(cfg.scale || 1, 0.8, 1.3);
+      const embers = [];
+      for (let i = 0; i < 46; i++) embers.push({ x: W / 2 + (Math.random() - 0.5) * figH * 0.9, y: ground - Math.random() * 20, v: 0.4 + Math.random() * 1.2, r: 1 + Math.random() * 2, p: Math.random() });
+
+      ov.hidden = false;
+      requestAnimationFrame(() => ov.classList.add('on'));
+      sfxArise();
+      if (window.SFX && !reduce && it.type !== 'arise') window.SFX.Confetti.burst(W / 2, Hh * 0.4, 100, { colors: ['#4aa8ff', '#8a5cff', '#c4b5fd', '#fff'] });
+
+      let raf = 0, closed = false, canClose = false;
+      const t0 = performance.now();
+      const timers = [];
+      const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+      later(() => { $('#ariseWord').classList.add('show'); }, 500);
+      later(() => { $('#ariseCard').classList.add('show'); }, 2600);
+      later(() => { canClose = true; }, 2000);
+      later(() => close(), 14000);
+
+      function frame(now) {
+        if (closed) return;
+        const el = (now - t0) / 1000;
+        g.clearRect(0, 0, W, Hh);
+        const rg = g.createRadialGradient(W / 2, ground, 10, W / 2, ground, figH * 0.9);
+        rg.addColorStop(0, 'rgba(138,92,255,.55)'); rg.addColorStop(1, 'rgba(138,92,255,0)');
+        g.fillStyle = rg; g.beginPath(); g.ellipse(W / 2, ground, figH * 0.9, figH * 0.18, 0, 0, 6.283); g.fill();
+        if (cfg.spec) {
+          const k = clamp((el - 1.0) / 1.6, 0, 1), e = 1 - Math.pow(1 - k, 3);
+          const dk = cfg.dissolve ? clamp((el - 2.4) / 1.4, 0, 1) : 0;
+          g.save(); g.beginPath(); g.rect(0, 0, W, ground); g.clip();
+          drawFigure(g, W / 2, ground + (1 - e) * figH * 0.95, figH, Object.assign({ t: el, alpha: e * (1 - dk) }, cfg.spec));
+          g.restore();
+        }
+        embers.forEach((m) => {
+          m.y -= m.v; m.p += 0.01;
+          if (m.y < ground - figH * 1.1) { m.y = ground; m.x = W / 2 + (Math.random() - 0.5) * figH * 0.9; }
+          g.globalAlpha = clamp((ground - m.y) / (figH * 0.3), 0, 1) * 0.8;
+          g.fillStyle = '#c4b5fd'; g.beginPath(); g.arc(m.x + Math.sin(m.p * 6) * 6, m.y, m.r, 0, 6.283); g.fill();
+        });
+        g.globalAlpha = 1;
+        raf = requestAnimationFrame(frame);
+      }
+      raf = requestAnimationFrame(frame);
+
+      const app = $('#app');
+      if (app && !reduce) { app.classList.remove('shake'); void app.offsetWidth; app.classList.add('shake'); }
+
+      function close() {
+        if (closed) return;
+        closed = true;
+        cancelAnimationFrame(raf);
+        timers.forEach(clearTimeout);
+        ov.classList.remove('on');
+        setTimeout(() => { ov.hidden = true; resolve(); }, 500);
+        if (SF.renderChrome) SF.renderChrome();
+        if (document.body.dataset.page === 'system') render();
+      }
+      ov.onclick = () => { if (canClose) close(); };
+    });
+  }
+
+  // ------------------------------------------------------------
+  // rendering the System page
+  // ------------------------------------------------------------
+  const bar = (p, cls) => '<div class="bar-h ' + (cls || '') + '"><i style="width:' + Math.round(clamp(p, 0, 1) * 100) + '%"></i></div>';
+  let radarAnim = 0;
+  function drawRadar(stats, prog) {
+    const cv = $('#sysRadar'); if (!cv) return;
+    const g = cv.getContext('2d'), W = cv.width, Hh = cv.height, cx = W / 2, cy = Hh / 2 + 6, R = Math.min(W, Hh) * 0.34, n = stats.length;
+    const pt = (i, v) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / n; return [cx + Math.cos(a) * R * v, cy + Math.sin(a) * R * v]; };
+    g.clearRect(0, 0, W, Hh);
+    [0.25, 0.5, 0.75, 1].forEach((r) => {
+      g.beginPath(); stats.forEach((_, i) => { const p = pt(i, r); if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); }); g.closePath();
+      g.strokeStyle = 'rgba(74,168,255,' + (r === 1 ? 0.55 : 0.18) + ')'; g.lineWidth = 1; g.stroke();
+    });
+    stats.forEach((_, i) => { const p = pt(i, 1); g.beginPath(); g.moveTo(cx, cy); g.lineTo(p[0], p[1]); g.strokeStyle = 'rgba(74,168,255,.18)'; g.stroke(); });
+    const fg = g.createRadialGradient(cx, cy, 0, cx, cy, R);
+    fg.addColorStop(0, 'rgba(74,168,255,.55)'); fg.addColorStop(1, 'rgba(138,92,255,.4)');
+    g.beginPath();
+    stats.forEach((s, i) => { const p = pt(i, Math.max(0.04, (s.v / 100) * prog)); if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); });
+    g.closePath(); g.fillStyle = fg; g.shadowColor = 'rgba(74,168,255,.9)'; g.shadowBlur = 18; g.fill();
+    g.shadowBlur = 0; g.strokeStyle = '#7cc4ff'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#e8f1ff'; g.font = '600 12px Rajdhani, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    stats.forEach((s, i) => {
+      const d = pt(i, Math.max(0.04, (s.v / 100) * prog)); g.beginPath(); g.arc(d[0], d[1], 3.2, 0, 6.283); g.fillStyle = '#fff'; g.fill();
+      const p = pt(i, 1.24); g.fillStyle = '#9cc8ff'; g.fillText(s.k, p[0], p[1]);
+    });
+  }
+  function animRadar(stats) {
+    cancelAnimationFrame(radarAnim);
+    if (reduce) { drawRadar(stats, 1); return; }
+    const t0 = performance.now();
+    const step = (now) => { const k = clamp((now - t0) / 900, 0, 1); drawRadar(stats, 1 - Math.pow(1 - k, 3)); if (k < 1) radarAnim = requestAnimationFrame(step); };
+    radarAnim = requestAnimationFrame(step);
+  }
+
+  function render() {
+    const msg = $('#sysMsg');
+    if (!ready()) { if (msg) { msg.hidden = false; msg.textContent = 'The System is starting up…'; } return; }
+    if (msg) msg.hidden = true;
+    ensureQuests();
+    const h = H(), li = SF.levelInfo(SF.xpTotal()), stats = computeStats();
+    const power = Math.round(stats.reduce((t, s) => t + s.v, 0));
+
+    $('#sysName').textContent = ($('#username') && $('#username').textContent) || 'Hunter';
+    $('#sysSub').textContent = RANK_TITLES[h.rank];
+    const rk = $('#sysRank'); rk.className = 'sys-rank rank-' + h.rank; rk.firstElementChild.textContent = h.rank;
+
+    $('#sysStatus').innerHTML =
+      '<div class="lv-row"><span class="lv-num">LV ' + li.level + '</span><span class="lv-name">' + esc(li.name) + '</span><span class="lv-power">POWER <b>' + power + '</b></span></div>' +
+      bar(li.pct, 'xp') + '<small class="dim">' + li.xp + ' XP, ' + (li.next - li.xp) + ' to the next level</small>';
+    $('#sysStats').innerHTML = stats.map((s) => '<div class="stat-row"><span>' + s.k + '</span>' + bar(s.v / 100) + '<b>' + Math.round(s.v) + '</b></div>').join('');
+    animRadar(stats);
+
+    // quests
+    const q = h.quests, ts = todayStats();
+    const fmtV = (x, v) => (x.id === 'tasks' ? Math.min(v, x.target) + ' / ' + x.target : fmtShort(Math.min(v, x.target)) + ' / ' + fmtShort(x.target));
+    let qh = q.list.map((x) => {
+      const v = questValue(x, ts);
+      return '<div class="q' + (x.done ? ' done' : '') + '"><span class="q-box">' + SF.ico('check') + '</span><div class="q-body"><b>' + esc(x.label) + '</b>' + bar(v / x.target) + '<small>' + fmtV(x, v) + '</small></div><span class="q-xp">+' + Math.round(x.xp * questMult()) + ' XP</span></div>';
+    }).join('');
+    if (q.penalty) {
+      const v = ts.clean;
+      qh += '<div class="q penalty' + (q.penalty.done ? ' done' : '') + '"><span class="q-box">' + SF.ico(q.penalty.done ? 'check' : 'lock') + '</span><div class="q-body"><b>Penalty quest: 25 minutes with no distractions</b>' + bar(v / q.penalty.target, 'red') + '<small>' + (q.penalty.done ? 'Cleared' : 'Until cleared, quest XP is halved and shadow bonuses are off') + '</small></div></div>';
+    }
+    qh += '<small class="dim">' + (q.allClear ? 'Daily clear achieved. Come back tomorrow.' : 'Clear all three for a +100 XP bonus. New quests every day.') + '</small>';
+    $('#sysQuests').innerHTML = qh;
+
+    // trial
+    const ri = RANKS.indexOf(h.rank), nr = RANKS[ri + 1];
+    let th;
+    if (!nr) th = '<p class="dim">You stand at the top. There is no higher rank.</p>';
+    else {
+      const need = TRIALS[nr];
+      if (h.trial) th = '<p><b>Rank ' + nr + ' trial is open.</b> Start a focus session and stay in this tab for ' + need.min + ' minutes.</p><button class="btn btn-solid btn-sm" data-go="focus">Go to focus</button>';
+      else if (li.level >= need.level) th = '<p>You are ready for the <b>Rank ' + nr + '</b> trial: one ' + need.min + '-minute session without leaving the tab.</p><button class="btn btn-solid btn-sm" data-trial="' + nr + '">Accept trial</button>';
+      else th = '<p class="dim">Rank ' + nr + ' trial unlocks at level ' + need.level + ' (you are level ' + li.level + ').</p>' + bar(li.level / need.level);
+    }
+    $('#sysTrial').innerHTML = th;
+
+    // gates
+    const gl = h.gates.slice().sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1));
+    $('#gateList').innerHTML = gl.length ? gl.map((gt) => {
+      const st = gateState(gt), act = gt.status === 'active';
+      const info = act
+        ? 'HP ' + fmtShort(st.left) + ' / ' + fmtShort(st.max) + (st.regen ? ' (+' + fmtShort(st.regen) + ' regrown)' : '') + (st.daysLeft != null ? ' · ' + (st.daysLeft < 0 ? 'exam passed' : st.daysLeft === 0 ? 'exam today' : st.daysLeft + ' days left') : '')
+        : gt.status === 'cleared' ? 'Cleared' : 'Collapsed';
+      return '<article class="gate ' + gt.status + ' rank-' + gateRank(gt.hours) + '"><canvas class="gate-cv" width="150" height="150" data-gid="' + esc(gt.id) + '"></canvas><div class="gate-info"><div class="gate-top"><span class="gate-rank">' + gateRank(gt.hours) + '</span><h3>' + esc(gt.subject) + '</h3><button class="mini-btn danger" data-drop="' + esc(gt.id) + '" aria-label="Remove gate">' + SF.ico('x') + '</button></div>' + bar(act ? st.frac : gt.status === 'cleared' ? 0 : 1, 'red') + '<small class="dim">' + esc(info) + '</small>' + (act ? '<button class="btn btn-solid btn-sm" data-fight="' + esc(gt.id) + '">Enter gate</button>' : '') + '</div></article>';
+    }).join('') : '<p class="dim">No gates yet. Open one for the subject you fear most.</p>';
+
+    // legion list
+    let bx = 0, bq = 0;
+    h.shadows.forEach((id) => { const sh = SHADOWS.find((s) => s.id === id); if (sh) { bx += sh.bonus.xp || 0; bq += sh.bonus.quest || 0; } });
+    $('#sysLegionList').innerHTML = '<p class="legion-sum">' + h.shadows.length + ' / ' + SHADOWS.length + ' shadows · legion bonus: <b>+' + Math.round(bx * 100) + '% session XP</b>, <b>+' + Math.round(bq * 100) + '% quest XP</b></p>' +
+      '<div class="legion-cards">' + SHADOWS.map((sh) => {
+        const on = h.shadows.includes(sh.id);
+        return '<div class="lc' + (on ? '' : ' locked') + '"><b>' + (on ? esc(sh.name) : '???') + '</b><span>' + (on ? esc(sh.title) : esc(sh.hint)) + '</span><em>' + (on ? esc(bonusText(sh.bonus)) : 'Locked') + '</em></div>';
+      }).join('') + '</div>';
+    $('#legionEmpty').hidden = h.shadows.length > 0;
+    startLoop();
+  }
+
+  // ------------------------------------------------------------
+  // animated canvases (legion + gate bosses) while the page is open
+  // ------------------------------------------------------------
+  let raf = 0, last = 0;
+  const embers = [];
+  for (let i = 0; i < 34; i++) embers.push({ x: Math.random(), y: Math.random(), v: 0.0004 + Math.random() * 0.0012, r: 0.6 + Math.random() * 1.8, p: Math.random() * 6 });
+
+  function drawLegion(t) {
+    const cv = $('#legion'); if (!cv) return;
+    const wrap = cv.parentNode, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cw = wrap.clientWidth, ch = wrap.clientHeight;
+    if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, cw, ch);
+    const sky = g.createLinearGradient(0, 0, 0, ch); sky.addColorStop(0, 'rgba(20,8,48,0)'); sky.addColorStop(1, 'rgba(90,40,180,.28)');
+    g.fillStyle = sky; g.fillRect(0, 0, cw, ch);
+    embers.forEach((m) => { m.y -= m.v * 16; if (m.y < 0) { m.y = 1; m.x = Math.random(); } g.globalAlpha = 0.35 + 0.3 * Math.sin(t * 2 + m.p); g.fillStyle = '#c4b5fd'; g.beginPath(); g.arc(m.x * cw, m.y * ch, m.r, 0, 6.283); g.fill(); });
+    g.globalAlpha = 1;
+    const list = H().shadows.map((id) => SHADOWS.find((s) => s.id === id)).filter(Boolean).sort((a, b) => b.scale - a.scale);
+    const n = list.length;
+    if (n) {
+      const spacing = Math.min(150, cw / (n + 0.6)), base = ch * 0.62;
+      const pos = list.map((sh, k) => ({ sh: sh, k: k, off: (k % 2 ? -1 : 1) * Math.ceil(k / 2) * spacing }));
+      pos.slice().reverse().forEach((p) => {
+        const depth = p.k === 0 ? 1 : 0.9, hh = clamp(base * p.sh.scale * depth, 60, ch * 0.78);
+        drawFigure(g, cw / 2 + p.off, ch * 0.9 - (p.k ? ch * 0.03 : 0), hh, { kind: p.sh.kind, eye: p.sh.eye, t: t + p.k, alpha: p.k ? 0.92 : 1 });
+      });
+    }
+    const fog = g.createLinearGradient(0, ch * 0.7, 0, ch); fog.addColorStop(0, 'rgba(120,60,220,0)'); fog.addColorStop(1, 'rgba(120,60,220,.4)');
+    g.fillStyle = fog; g.fillRect(0, ch * 0.7, cw, ch * 0.3);
+  }
+  function drawBosses(t) {
+    const h = H();
+    $$('.gate-cv').forEach((cv) => {
+      const gt = h.gates.find((x) => x.id === cv.dataset.gid); if (!gt) return;
+      const g = cv.getContext('2d'), st = gateState(gt), act = gt.status === 'active';
+      g.clearRect(0, 0, cv.width, cv.height);
+      const hh = 96 + 26 * (act ? st.frac : 0);
+      drawFigure(g, cv.width / 2, cv.height - 8, hh, { boss: true, t: t, alpha: act ? 1 : 0.35 });
+    });
+  }
+  function loop(now) {
+    raf = 0;
+    if (document.body.dataset.page !== 'system' || document.hidden) return;
+    if (now - last > 33) { last = now; const t = now / 1000; drawLegion(t); drawBosses(t); }
+    raf = requestAnimationFrame(loop);
+  }
+  function startLoop() { if (!raf) raf = requestAnimationFrame(loop); }
+
+  // ------------------------------------------------------------
+  // events + init
+  // ------------------------------------------------------------
+  let wired = false;
+  function wire() {
+    if (wired) return;
+    wired = true;
+    const page = $('#page-system');
+    if (!page) return;
+    page.addEventListener('click', (e) => {
+      const tr = e.target.closest('[data-trial]');
+      if (tr) {
+        const h = H(), nr = tr.dataset.trial;
+        h.trial = { rank: nr, min: TRIALS[nr].min, accepted: new Date().toISOString() }; save();
+        notice('Trial accepted', ['Rank ' + nr + ': one ' + TRIALS[nr].min + '-minute session, no leaving the tab'], 'warn');
+        SF.navigate('focus');
+        return;
+      }
+      const fight = e.target.closest('[data-fight]');
+      if (fight) {
+        const gt = H().gates.find((x) => x.id === fight.dataset.fight);
+        if (gt && SF.focusOn) SF.focusOn(gt.subject);
+        return;
+      }
+      const drop = e.target.closest('[data-drop]');
+      if (drop) {
+        if (!confirm('Remove this gate? Your study history is not affected.')) return;
+        const h = H(); h.gates = h.gates.filter((x) => x.id !== drop.dataset.drop); save(); render();
+      }
+    });
+    $('#gateForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const f = e.target, h = H();
+      const subject = f.subject.value.trim(), hours = clamp(parseFloat(f.hours.value) || 0, 1, 300);
+      if (!subject) { notice('Gate', ['Name the subject first'], 'warn'); return; }
+      if (h.gates.filter((x) => x.status === 'active').length >= 6) { notice('Gate', ['You can hold 6 open gates at once'], 'warn'); return; }
+      h.gates.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), subject: subject, hours: hours, exam: f.exam.value || null, created: new Date().toISOString(), status: 'active' });
+      save(); f.reset(); f.hours.value = 10;
+      notice('Gate opened', [subject + ': a rank ' + gateRank(hours) + ' boss appears'], 'level');
+      render();
+    });
+  }
+
+  function init() {
+    wire();
+    if (!S.settings) return;
+    inited = true;
+    const r = ensureQuests();
+    H();
+    if (r) {
+      if (r.first) notice('System', ['You have awakened.', 'Daily quests are now tracking your progress.'], 'level');
+      else notice('Daily quests', ['New quests have arrived.', 'Clear all three for a bonus.'], 'quest');
+      if (r.penalty) setTimeout(() => notice('Warning', ['You missed yesterday\'s quests.', 'Penalty quest issued.'], 'warn'), 900);
+    }
+    setTimeout(check, 1200);
+  }
+
+  SF.system = { init: init, render: render, check: check, onStart: onStart, onSession: onSession, levelUp: levelUp, rank: () => (ready() ? H().rank : 'E') };
 })();

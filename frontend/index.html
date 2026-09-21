@@ -10,8 +10,8 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=4">
 
   <script>
     /* apply saved look before first paint (no flash) */
@@ -61,6 +61,7 @@
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
     <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
     <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v15H6.5A2.5 2.5 0 0 0 4 19.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20"/></symbol>
+    <symbol id="i-system" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 16V9M9 12l3-3 3 3"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5"/></symbol>
   </svg>
 
@@ -415,6 +416,59 @@
       </div>
     </section>
 
+    <!-- ---------- SYSTEM ---------- -->
+    <section class="page sys-page" id="page-system" aria-labelledby="sysTitle">
+      <header class="sys-head">
+        <div>
+          <p class="sys-tag">System online</p>
+          <h1 id="sysTitle"><span id="sysName">Hunter</span></h1>
+          <p class="sys-sub" id="sysSub">Awakened Novice</p>
+        </div>
+        <div class="sys-rank rank-E" id="sysRank" aria-label="Hunter rank"><span>E</span></div>
+      </header>
+      <p class="sys-msg" id="sysMsg" hidden></p>
+
+      <div class="sys-grid">
+        <section class="sys-win sys-status">
+          <h2 class="sys-title">Status</h2>
+          <div id="sysStatus"></div>
+          <canvas id="sysRadar" width="380" height="340" aria-label="Stat radar"></canvas>
+          <div id="sysStats" class="stat-list"></div>
+        </section>
+
+        <section class="sys-win sys-quests">
+          <h2 class="sys-title">Daily quests</h2>
+          <div id="sysQuests" class="q-list"></div>
+          <h2 class="sys-title sys-title-b">Rank trial</h2>
+          <div id="sysTrial"></div>
+        </section>
+
+        <section class="sys-win sys-gates">
+          <h2 class="sys-title">Gates</h2>
+          <p class="dim">Pick a subject and how many hours it takes to beat it. Every minute you study that subject hurts the boss. Skip days and it heals.</p>
+          <form class="gate-form" id="gateForm" autocomplete="off">
+            <label class="sr" for="gateSubject">Subject</label>
+            <input class="input" id="gateSubject" name="subject" type="text" maxlength="40" placeholder="Subject, same name you use in focus">
+            <label class="sr" for="gateHours">Hours to beat it</label>
+            <input class="input input-sm" id="gateHours" name="hours" type="number" min="1" max="300" value="10" title="Hours to beat it">
+            <label class="sr" for="gateExam">Exam date</label>
+            <input class="input" id="gateExam" name="exam" type="date" title="Exam date (optional)">
+            <button class="btn btn-solid" type="submit">Open gate</button>
+          </form>
+          <div class="gate-list" id="gateList"></div>
+        </section>
+
+        <section class="sys-win sys-legion">
+          <h2 class="sys-title">Shadow legion</h2>
+          <div class="legion-wrap">
+            <canvas id="legion" aria-label="Your shadow legion"></canvas>
+            <p class="legion-empty" id="legionEmpty" hidden>Your legion is empty. Study, clear quests and rank up to extract shadows.</p>
+          </div>
+          <div id="sysLegionList"></div>
+        </section>
+      </div>
+    </section>
+
   </main>
 
   <!-- ============ DOCK ============ -->
@@ -424,6 +478,7 @@
     <a href="#tasks" data-go="tasks"><svg class="i"><use href="#i-tasks"/></svg><span>Tasks</span></a>
     <a href="#planner" data-go="planner"><svg class="i"><use href="#i-planner"/></svg><span>Routine</span></a>
     <a href="#insights" data-go="insights"><svg class="i"><use href="#i-insights"/></svg><span>Insights</span></a>
+    <a href="#system" data-go="system"><svg class="i"><use href="#i-system"/></svg><span>System</span></a>
   </nav>
 
   <button class="btn btn-ghost zen-exit" id="zenExit" type="button" hidden><svg class="i"><use href="#i-x"/></svg>Exit zen</button>
@@ -439,6 +494,7 @@
         <button type="button" data-accent="sunset" aria-label="Sunset"></button>
         <button type="button" data-accent="matcha" aria-label="Matcha"></button>
         <button type="button" data-accent="bubblegum" aria-label="Bubblegum"></button>
+        <button type="button" data-accent="system" aria-label="System"></button>
       </div>
     </div>
 
@@ -476,6 +532,21 @@
     </div>
   </div>
 
+
+  <div class="sys-notices" id="sysNotices" aria-live="polite"></div>
+  <div class="arise" id="arise" hidden role="dialog" aria-modal="true" aria-label="Notification">
+    <canvas id="ariseCanvas" aria-hidden="true"></canvas>
+    <div class="arise-word" id="ariseWord">ARISE</div>
+    <div class="arise-badge" id="ariseBadge"></div>
+    <div class="arise-card" id="ariseCard">
+      <small id="ariseKicker"></small>
+      <h2 id="ariseName"></h2>
+      <p id="ariseTitle"></p>
+      <p class="arise-bonus" id="ariseBonus"></p>
+      <span>Tap to continue</span>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <canvas id="fxCanvas" aria-hidden="true"></canvas>
 
@@ -485,13 +556,13 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <!-- 2) Firebase config (built in, no backend call) -->
-  <script src="firebase-init.js?v=3"></script>
+  <script src="firebase-init.js?v=4"></script>
   <!-- 3) 3D orb + effects -->
-  <script src="orb.js?v=3"></script>
-  <script src="fx.js?v=3"></script>
+  <script src="orb.js?v=4"></script>
+  <script src="fx.js?v=4"></script>
   <!-- 4) App -->
-  <script src="script.js?v=3"></script>
+  <script src="script.js?v=4"></script>
   <!-- 5) Cloud sync: wraps `storage` so every save also goes to Firestore. Must load AFTER script.js -->
-  <script src="firebase-wrapper.js?v=3"></script>
+  <script src="firebase-wrapper.js?v=4"></script>
 </body>
 </html>
