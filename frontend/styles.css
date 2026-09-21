@@ -851,3 +851,46 @@ body.zen .orb-wrap-lg { width: min(84vh, 92vw); }
   .sys-notices { top: 66px; }
   .dock a { font-size: .66rem; }
 }
+
+/* ============================================================
+   THE REALM  (immersive home)
+   ============================================================ */
+.realm { position: relative; width: 100vw; margin: -92px 0 28px calc(50% - 50vw); height: max(640px, 100vh); overflow: hidden; background: linear-gradient(180deg, rgba(2, 0, 12, .0), rgba(2, 0, 12, .0)); user-select: none; -webkit-user-select: none; }
+#realmCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; transition: transform .65s cubic-bezier(.6, 0, .9, .4), filter .65s; transform-origin: 50% 55%; }
+.realm.dive #realmCanvas { transform: scale(1.7); filter: blur(5px) brightness(1.6); }
+.realm-orb { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; transition: opacity .3s; }
+.realm-hud { position: absolute; top: 96px; left: clamp(16px, 3vw, 40px); right: clamp(16px, 3vw, 40px); display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; pointer-events: none; }
+.rh-card, .rh-side { display: flex; align-items: center; gap: 14px; padding: 12px 18px 12px 12px; border-radius: 6px; background: linear-gradient(180deg, rgba(10, 26, 70, .62), rgba(8, 10, 32, .68)); border: 1px solid rgba(74, 168, 255, .4); box-shadow: 0 0 26px -8px rgba(74, 168, 255, .6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: #e8f1ff; }
+.rh-rank { width: 52px; height: 58px; font-size: 1.7rem; animation: none; }
+.rh-info { display: grid; gap: 2px; min-width: 150px; }
+.rh-info b { font: 700 1.35rem/1 "Rajdhani", var(--font-display); letter-spacing: .04em; }
+.rh-info small { color: rgba(232, 241, 255, .65); }
+.rh-side { padding: 12px 18px; flex-direction: column; align-items: flex-end; gap: 6px; }
+.rh-streak { display: flex; align-items: center; gap: 8px; }
+.rh-streak .i { color: var(--ember); width: 22px; height: 22px; filter: drop-shadow(0 0 8px var(--ember)); }
+.rh-streak b { font: 700 1.7rem/1 "Rajdhani", var(--font-display); }
+.rh-streak small { color: rgba(232, 241, 255, .6); }
+.rh-quests { display: flex; align-items: center; gap: 6px; font: 600 .85rem "Rajdhani", sans-serif; letter-spacing: .08em; color: rgba(232, 241, 255, .7); }
+.rh-quests i { width: 14px; height: 14px; border: 2px solid rgba(74, 168, 255, .6); border-radius: 3px; }
+.rh-quests i.on { background: #4ade80; border-color: #4ade80; box-shadow: 0 0 10px #4ade80; }
+.rh-hint { position: absolute; left: 0; right: 0; bottom: 138px; text-align: center; font: 600 1.05rem "Rajdhani", sans-serif; letter-spacing: .28em; text-transform: uppercase; color: rgba(232, 241, 255, .85); text-shadow: 0 0 16px rgba(138, 92, 255, .9); animation: hintPulse 2.6s ease-in-out infinite; pointer-events: none; }
+@keyframes hintPulse { 50% { opacity: .35; } }
+.realm-more { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 120px; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 999px; background: rgba(10, 8, 30, .6); border: 1px solid rgba(255, 255, 255, .2); color: #fff; font-weight: 600; font-size: .85rem; backdrop-filter: blur(10px); }
+.realm-more:hover { border-color: var(--accent-2); }
+.realm-tip { position: absolute; left: 0; top: 0; z-index: 4; padding: 7px 12px; border-radius: 4px; font: 600 .95rem "Rajdhani", sans-serif; letter-spacing: .06em; color: #e8f1ff; background: rgba(8, 12, 40, .92); border: 1px solid #4aa8ff; box-shadow: 0 0 20px -4px #4aa8ff; pointer-events: none; white-space: nowrap; }
+.realm-boot { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; background: #02000c; transition: opacity .7s; }
+.realm-boot.out { opacity: 0; }
+.realm-boot pre { font: 500 clamp(.95rem, 2.4vw, 1.25rem)/1.9 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: #7cc4ff; text-shadow: 0 0 12px rgba(74, 168, 255, .8); white-space: pre-wrap; padding: 24px; }
+.realm-boot pre::after { content: "\2588"; margin-left: 4px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.realm-flash { position: absolute; inset: 0; z-index: 5; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 55%, #fff 0, #c4b5fd 25%, #4b2fb8 60%, #02000c 100%); }
+.realm-flash.on { animation: flashIn 1.3s ease-in-out forwards; }
+@keyframes flashIn { 0% { opacity: 0; } 50% { opacity: .95; } 100% { opacity: 0; } }
+
+@media (max-width: 760px) {
+  .realm { height: max(600px, 88vh); margin-top: -84px; }
+  .realm-hud { top: 82px; flex-direction: column; align-items: stretch; }
+  .rh-side { flex-direction: row; justify-content: space-between; align-items: center; }
+  .rh-hint { bottom: 110px; font-size: .85rem; letter-spacing: .16em; }
+  .realm-more { bottom: 74px; }
+}

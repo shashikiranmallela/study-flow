@@ -359,7 +359,7 @@
     window.scrollTo(0, 0);
   }
   function renderPage(page) {
-    if (page === 'home') renderHome();
+    if (page === 'home') { renderHome(); if (window.SF && window.SF.realm) window.SF.realm.start(); }
     else if (page === 'focus') renderFocus();
     else if (page === 'tasks') renderTasks();
     else if (page === 'planner') renderPlanner();
@@ -1239,7 +1239,13 @@
   // ------------------------------------------------------------
   // public surface for insights.js
   // ------------------------------------------------------------
+  function orbSpec() {
+    const acc = ACCENTS[S.settings.accent] || ACCENTS.aurora, st = orbState();
+    return { pal: st === 'focus' ? STATE_PAL.focus : st === 'break' ? STATE_PAL.break : acc.idle, energy: st === 'focus' ? 1 : st === 'break' ? 0.3 : 0.45 };
+  }
+
   window.SF = Object.assign(window.SF || {}, {
+    orbSpec: orbSpec,
     S: S, storage: storage, $: $, $$: $$, esc: esc, pad2: pad2, dayKey: dayKey, parseKey: parseKey, clamp: clamp, ico: ico,
     fmtShort: fmtShort, timeAgo: timeAgo, studyDaily: studyDaily, streaks: streaks, levelInfo: levelInfo, xpTotal: xpTotal,
     totalStudySec: totalStudySec, barChart: barChart, toast: showToast, navigate: navigate, saveSessions: saveSessions,
@@ -2176,6 +2182,7 @@
     if (checkShadows()) changed = true;
     if (changed) save();
     if (SF.renderChrome) SF.renderChrome();
+    if (SF.realm) SF.realm.hud();
     if (document.body.dataset.page === 'system') render();
   }
 
@@ -2272,6 +2279,12 @@
     g.fillStyle = ag; g.beginPath(); g.arc(x, y - h * 0.5, h * 0.9, 0, 6.283); g.fill();
 
     const w = h * (boss ? 0.36 : 0.3), sh = h * 0.15, hy = y - h * 0.8, hr = h * 0.075;
+    for (let i = 0; i < 5; i++) {
+      const ph = (t * 0.3 + i * 0.2) % 1, side = i % 2 ? 1 : -1;
+      g.globalAlpha = alpha * (1 - ph) * 0.4; g.fillStyle = 'rgba(' + rim + ',1)';
+      g.beginPath(); g.ellipse(x + side * (w * 0.9 + Math.sin(ph * 6 + i) * w * 0.25), y - ph * h * 0.62, h * 0.05 * (1 + ph), h * 0.03 * (1 + ph), 0, 0, 6.283); g.fill();
+    }
+    g.globalAlpha = alpha;
     g.beginPath();
     g.moveTo(x - sh, y - h * 0.68);
     g.bezierCurveTo(x - sh * 1.3, y - h * 0.45, x - w * 1.1, y - h * 0.2, x - w, y);
@@ -2303,11 +2316,6 @@
 
     weapon(g, x, y, h, boss ? 'club' : o.kind, rim);
 
-    for (let i = 0; i < 4; i++) {
-      const ph = (t * 0.3 + i * 0.25) % 1;
-      g.globalAlpha = alpha * (1 - ph) * 0.35; g.fillStyle = 'rgba(' + rim + ',1)';
-      g.beginPath(); g.ellipse(x + Math.sin(ph * 6 + i * 2) * w * 0.8, y - ph * h * 0.5, h * 0.05 * (1 + ph), h * 0.028 * (1 + ph), 0, 0, 6.283); g.fill();
-    }
     g.restore();
   }
 
@@ -2612,7 +2620,376 @@
       if (r.penalty) setTimeout(() => notice('Warning', ['You missed yesterday\'s quests.', 'Penalty quest issued.'], 'warn'), 900);
     }
     setTimeout(check, 1200);
+    if (SF.realm) SF.realm.hud();
   }
 
-  SF.system = { init: init, render: render, check: check, onStart: onStart, onSession: onSession, levelUp: levelUp, rank: () => (ready() ? H().rank : 'E') };
+  SF.system = {
+    init: init, render: render, check: check, onStart: onStart, onSession: onSession, levelUp: levelUp,
+    rank: () => (ready() ? H().rank : 'E'),
+    drawFigure: drawFigure,
+    legion: () => (ready() ? H().shadows.map((id) => SHADOWS.find((x) => x.id === id)).filter(Boolean).sort((a, b) => b.scale - a.scale) : []),
+    gates: () => (ready() ? H().gates.filter((x) => x.status === 'active').map((x) => Object.assign({}, x, { frac: gateState(x).frac })) : [])
+  };
+})();
+
+/* ============================================================
+   THE REALM  -  the home screen as a place you stand inside.
+   A real perspective-projected 3D world drawn on canvas:
+   sky-ring, ruins, a glowing road, portals (your gates), your
+   shadow legion, and the Flow Orb hovering on its altar.
+   Camera flies in on load and follows the pointer.
+   Click the orb -> dive into focus. Click a portal -> fight it.
+   ============================================================ */
+(function () {
+  'use strict';
+  const SF = window.SF;
+  if (!SF) return;
+  const { S, $, clamp } = SF;
+  const reduce = SF.reduceMotion;
+
+  let cv, g, orbCv, orb, root, tip;
+  let W = 0, Hh = 0, dpr = 1;
+  let raf = 0, last = 0, T = 0, introStart = 0, introDone = false;
+  const mouse = { x: 0, y: 0, sx: 0, sy: 0, px: -999, py: -999 };
+  let hits = [], hover = null, diving = false;
+
+  // deterministic scenery
+  const rnd = (function () { let s = 7; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; })();
+  const ridges = [0, 1, 2].map((k) => { const pts = []; for (let i = 0; i <= 40; i++) pts.push({ x: i / 40, h: (0.35 + rnd() * 0.65) * (k === 0 ? 1 : k === 1 ? 0.7 : 0.45), spike: rnd() > 0.72 }); return pts; });
+  const pillars = []; for (let i = 0; i < 12; i++) pillars.push({ side: i % 2 ? 1 : -1, z: 5 + Math.floor(i / 2) * 6.5 + rnd() * 2, x: 8.5 + rnd() * 4, h: 4 + rnd() * 4.5, w: 0.8 + rnd() * 0.6 });
+  const motes = []; for (let i = 0; i < 70; i++) motes.push({ x: (rnd() - 0.5) * 26, y: rnd() * 6, z: 3 + rnd() * 34, v: 0.15 + rnd() * 0.5, p: rnd() * 6 });
+
+  // world colours follow what you are doing
+  function mood() {
+    const t = S.timer || {};
+    if (t.isBreak) return { a: '79,227,184', b: '79,179,255', name: 'break' };
+    if (t.isRunning) return { a: '255,122,99', b: '255,193,77', name: 'focus' };
+    const acc = document.documentElement.dataset.accent;
+    if (acc === 'sunset') return { a: '255,138,101', b: '255,193,77', name: 'idle' };
+    if (acc === 'matcha') return { a: '91,227,168', b: '196,242,95', name: 'idle' };
+    if (acc === 'bubblegum') return { a: '255,122,192', b: '140,155,255', name: 'idle' };
+    return { a: '110,140,255', b: '168,100,255', name: 'idle' };
+  }
+
+  // ------------------------------------------------------------
+  // camera + projection
+  // ------------------------------------------------------------
+  let cam = { x: 0, y: 1.7, z: 0, f: 700, hz: 0 };
+  function project(x, y, z) {
+    const zz = z - cam.z;
+    if (zz < 0.35) return null;
+    const s = cam.f / zz;
+    return { x: W / 2 + (x - cam.x) * s, y: cam.hz - (y - cam.y) * s, s: s };
+  }
+
+  // ------------------------------------------------------------
+  // drawing helpers
+  // ------------------------------------------------------------
+  function skyRing(m, t) {
+    const cx = W / 2 - mouse.sx * 14, cy = Hh * 0.2 - mouse.sy * 6, R = Math.min(W, Hh) * 0.26;
+    const halo = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.9);
+    halo.addColorStop(0, 'rgba(' + m.b + ',.22)'); halo.addColorStop(1, 'rgba(' + m.b + ',0)');
+    g.fillStyle = halo; g.beginPath(); g.arc(cx, cy, R * 1.9, 0, 6.283); g.fill();
+    g.save(); g.translate(cx, cy);
+    for (let i = 0; i < 3; i++) {
+      g.save(); g.rotate(t * (0.05 + i * 0.03) * (i % 2 ? -1 : 1));
+      g.strokeStyle = 'rgba(' + (i === 1 ? m.b : m.a) + ',' + (0.75 - i * 0.2) + ')';
+      g.lineWidth = 3 - i * 0.8; g.shadowColor = 'rgba(' + m.a + ',1)'; g.shadowBlur = 24;
+      g.setLineDash(i === 0 ? [] : i === 1 ? [6, 14] : [2, 10]);
+      g.beginPath(); g.arc(0, 0, R * (1 - i * 0.12), 0, 6.283); g.stroke();
+      g.restore();
+    }
+    g.setLineDash([]); g.shadowBlur = 0;
+    const core = g.createRadialGradient(0, 0, 0, 0, 0, R * 0.8);
+    core.addColorStop(0, 'rgba(' + m.a + ',.16)'); core.addColorStop(1, 'rgba(' + m.a + ',0)');
+    g.fillStyle = core; g.beginPath(); g.arc(0, 0, R * 0.8, 0, 6.283); g.fill();
+    g.restore();
+  }
+
+  function ridgesLayer(m) {
+    ridges.forEach((pts, k) => {
+      const off = -mouse.sx * (10 + k * 14), base = cam.hz + k * 5, scale = Hh * (0.2 - k * 0.045);
+      g.beginPath(); g.moveTo(-20, base + 4);
+      pts.forEach((p) => { const x = p.x * (W + 80) - 40 + off; g.lineTo(x, base - p.h * scale - (p.spike ? scale * 0.35 : 0)); });
+      g.lineTo(W + 60, base + 4); g.closePath();
+      const gr = g.createLinearGradient(0, base - scale, 0, base);
+      gr.addColorStop(0, 'rgba(' + (k ? '18,10,44' : '26,14,60') + ',1)'); gr.addColorStop(1, 'rgba(6,3,18,1)');
+      g.fillStyle = gr; g.fill();
+      g.strokeStyle = 'rgba(' + m.b + ',' + (0.35 - k * 0.09) + ')'; g.lineWidth = 1.2; g.stroke();
+    });
+  }
+
+  function ground(m, t) {
+    const gy = cam.hz;
+    const gr = g.createLinearGradient(0, gy, 0, Hh);
+    gr.addColorStop(0, 'rgba(' + m.a + ',.30)'); gr.addColorStop(0.18, 'rgba(14,8,36,.96)'); gr.addColorStop(1, 'rgba(4,2,12,1)');
+    g.fillStyle = gr; g.fillRect(0, gy, W, Hh - gy);
+
+    // the road
+    const p1 = project(-1.7, 0, 1), p2 = project(1.7, 0, 1), p3 = project(-1.7, 0, 60), p4 = project(1.7, 0, 60);
+    if (p1 && p2 && p3 && p4) {
+      const rg = g.createLinearGradient(0, p3.y, 0, p1.y);
+      rg.addColorStop(0, 'rgba(' + m.a + ',.32)'); rg.addColorStop(1, 'rgba(' + m.b + ',.06)');
+      g.fillStyle = rg; g.beginPath(); g.moveTo(p3.x, p3.y); g.lineTo(p4.x, p4.y); g.lineTo(p2.x, p2.y); g.lineTo(p1.x, p1.y); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(' + m.a + ',.7)'; g.lineWidth = 1.5; g.shadowColor = 'rgba(' + m.a + ',1)'; g.shadowBlur = 12;
+      [[p3, p1], [p4, p2]].forEach((e) => { g.beginPath(); g.moveTo(e[0].x, e[0].y); g.lineTo(e[1].x, e[1].y); g.stroke(); });
+      g.shadowBlur = 0;
+    }
+    // perspective grid
+    g.lineWidth = 1;
+    for (let x = -30; x <= 30; x += 2) {
+      const a = project(x, 0, 1.2), b = project(x, 0, 70);
+      if (!a || !b) continue;
+      g.strokeStyle = 'rgba(' + m.b + ',' + (Math.abs(x) < 2 ? 0.0 : 0.16) + ')';
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+    const flow = (t * 1.4) % 2;
+    for (let z = 2 - flow; z < 70; z += 2) {
+      if (z < 1.2) continue;
+      const a = project(-30, 0, z), b = project(30, 0, z);
+      if (!a || !b) continue;
+      g.strokeStyle = 'rgba(' + m.a + ',' + clamp(0.22 - z * 0.003, 0.02, 0.22) + ')';
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+    // horizon glow
+    const hg = g.createRadialGradient(W / 2, gy, 0, W / 2, gy, W * 0.6);
+    hg.addColorStop(0, 'rgba(' + m.a + ',.4)'); hg.addColorStop(1, 'rgba(' + m.a + ',0)');
+    g.fillStyle = hg; g.beginPath(); g.ellipse(W / 2, gy, W * 0.6, 46, 0, 0, 6.283); g.fill();
+  }
+
+  function pillar(p, m) {
+    const x = p.side * p.x, a = project(x - p.w / 2, 0, p.z), b = project(x + p.w / 2, 0, p.z), c = project(x - p.w / 2, p.h, p.z);
+    if (!a || !b || !c) return;
+    const gr = g.createLinearGradient(a.x, 0, b.x, 0); gr.addColorStop(0, '#120a2c'); gr.addColorStop(0.5, '#0a0520'); gr.addColorStop(1, '#170c36');
+    g.fillStyle = gr; g.fillRect(a.x, c.y, b.x - a.x, a.y - c.y);
+    g.strokeStyle = 'rgba(' + m.b + ',.55)'; g.lineWidth = 1.2; g.strokeRect(a.x, c.y, b.x - a.x, a.y - c.y);
+    const glow = g.createLinearGradient(0, c.y, 0, c.y + (a.y - c.y) * 0.35); glow.addColorStop(0, 'rgba(' + m.a + ',.5)'); glow.addColorStop(1, 'rgba(' + m.a + ',0)');
+    g.fillStyle = glow; g.fillRect(a.x, c.y, b.x - a.x, (a.y - c.y) * 0.35);
+  }
+
+  function portal(slot, gate, m, t) {
+    const R = 1.9, c = project(slot.x, 2.1, slot.z), edge = project(slot.x + R, 2.1, slot.z);
+    if (!c || !edge) return;
+    const r = Math.abs(edge.x - c.x), active = !!gate, col = active ? '255,77,109' : '120,130,170', alpha = clamp(1.25 - slot.z * 0.02, 0.4, 1);
+    g.save(); g.globalAlpha = alpha;
+    const inner = g.createRadialGradient(c.x, c.y, r * 0.05, c.x, c.y, r);
+    inner.addColorStop(0, active ? 'rgba(255,120,150,.55)' : 'rgba(90,100,140,.25)'); inner.addColorStop(1, active ? 'rgba(120,20,70,.22)' : 'rgba(30,34,60,.15)');
+    g.fillStyle = inner; g.beginPath(); g.arc(c.x, c.y, r, 0, 6.283); g.fill();
+    if (active) for (let i = 0; i < 3; i++) { g.strokeStyle = 'rgba(255,190,205,' + (0.34 - i * 0.09) + ')'; g.lineWidth = Math.max(1, r * 0.03); g.beginPath(); g.ellipse(c.x, c.y, r * (0.75 - i * 0.2), r * (0.75 - i * 0.2) * 0.55, t * (0.6 + i * 0.4), 0, 6.283); g.stroke(); }
+    const hot = hover && hover.gate === slot;
+    g.strokeStyle = 'rgba(' + col + ',' + (hot ? 1 : 0.9) + ')'; g.lineWidth = Math.max(2, r * (hot ? 0.11 : 0.075));
+    g.shadowColor = 'rgba(' + col + ',1)'; g.shadowBlur = active ? (hot ? 46 : 28) : 6;
+    g.beginPath(); g.arc(c.x, c.y, r, 0, 6.283); g.stroke(); g.shadowBlur = 0;
+    const fs = clamp(r * 0.24, 11, 26);
+    g.font = '700 ' + fs + 'px Rajdhani, system-ui, sans-serif'; g.textAlign = 'center'; g.fillStyle = 'rgba(255,235,240,.95)';
+    if (active) { g.fillText(String(gate.subject).slice(0, 18).toUpperCase(), c.x, c.y - r - fs * 0.9); g.font = '600 ' + fs * 0.75 + 'px Rajdhani, sans-serif'; g.fillStyle = 'rgba(255,150,170,.95)'; g.fillText('BOSS ' + Math.round(gate.frac * 100) + '%', c.x, c.y - r - fs * 0.1); }
+    else { g.fillStyle = 'rgba(190,200,230,.6)'; g.fillText('DORMANT GATE', c.x, c.y - r - fs * 0.5); }
+    g.restore();
+    hits.push({ kind: 'gate', x: c.x, y: c.y, r: r, data: gate, slot: slot, tip: active ? 'Enter gate: ' + gate.subject : 'Open a gate' });
+  }
+
+  function altar(m, t) {
+    const zc = 10.5, base = project(0, 0, zc), top = project(0, 1.05, zc), oc = project(0, 2.0, zc);
+    if (!base || !oc) return null;
+    // light shaft
+    const shaft = g.createLinearGradient(0, 0, 0, base.y);
+    shaft.addColorStop(0, 'rgba(' + m.a + ',0)'); shaft.addColorStop(0.7, 'rgba(' + m.a + ',.16)'); shaft.addColorStop(1, 'rgba(' + m.a + ',.35)');
+    g.fillStyle = shaft; g.beginPath(); g.moveTo(oc.x - oc.s * 0.5, 0); g.lineTo(oc.x + oc.s * 0.5, 0); g.lineTo(base.x + oc.s * 1.05, base.y); g.lineTo(base.x - oc.s * 1.05, base.y); g.closePath(); g.fill();
+    // pedestal discs
+    for (let i = 0; i < 3; i++) {
+      const yy = project(0, i * 0.34, zc), rr = oc.s * (1.5 - i * 0.28);
+      if (!yy) continue;
+      const dg = g.createLinearGradient(0, yy.y - rr * 0.3, 0, yy.y + rr * 0.3); dg.addColorStop(0, '#20124a'); dg.addColorStop(1, '#0a0522');
+      g.fillStyle = dg; g.beginPath(); g.ellipse(yy.x, yy.y, rr, rr * 0.3, 0, 0, 6.283); g.fill();
+      g.strokeStyle = 'rgba(' + m.a + ',' + (0.9 - i * 0.2) + ')'; g.lineWidth = 2; g.shadowColor = 'rgba(' + m.a + ',1)'; g.shadowBlur = 16; g.stroke(); g.shadowBlur = 0;
+    }
+    // orbiting ring
+    g.save(); g.translate(oc.x, oc.y); g.strokeStyle = 'rgba(' + m.b + ',.75)'; g.lineWidth = 2; g.shadowColor = 'rgba(' + m.b + ',1)'; g.shadowBlur = 14;
+    g.beginPath(); g.ellipse(0, 0, oc.s * 1.25, oc.s * 0.32, -0.25 + Math.sin(t * 0.6) * 0.06, 0, 6.283); g.stroke(); g.restore(); g.shadowBlur = 0;
+    return { x: oc.x, y: oc.y + Math.sin(t * 1.2) * oc.s * 0.06, r: oc.s * 0.95 };
+  }
+
+  // ------------------------------------------------------------
+  // the frame
+  // ------------------------------------------------------------
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const r = root.getBoundingClientRect();
+    const w = Math.max(320, Math.round(r.width)), h = Math.max(320, Math.round(r.height));
+    if (w !== W || h !== Hh || cv.width !== Math.round(w * dpr)) {
+      W = w; Hh = h;
+      cv.width = Math.round(W * dpr); cv.height = Math.round(Hh * dpr);
+    }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function draw(now) {
+    resize();
+    const dt = Math.min(0.06, (now - last) / 1000 || 0.016); last = now; T += dt;
+    mouse.sx += (mouse.x - mouse.sx) * Math.min(1, dt * 3.5); mouse.sy += (mouse.y - mouse.sy) * Math.min(1, dt * 3.5);
+
+    // intro fly-in
+    let e = 1;
+    if (!introDone) {
+      const k = reduce ? 1 : clamp((now - introStart) / 3200 - 0.28, 0, 1);
+      e = 1 - Math.pow(1 - k, 3);
+      if (k >= 1) introDone = true;
+    }
+    cam.z = -14 * (1 - e);
+    cam.f = Hh * (0.92 + (1 - e) * 0.25);
+    cam.x = mouse.sx * 1.4;
+    cam.y = 1.7 + mouse.sy * -0.25 + Math.sin(T * 0.5) * 0.05;
+    cam.hz = Hh * 0.47 + mouse.sy * 18;
+
+    const m = mood();
+    g.clearRect(0, 0, W, Hh);
+    hits = [];
+
+    skyRing(m, T);
+    ridgesLayer(m);
+    ground(m, T);
+
+    // depth-sorted world objects
+    const objs = [];
+    pillars.forEach((p) => objs.push({ z: p.z, draw: () => pillar(p, m) }));
+    const gates = SF.system && SF.system.gates ? SF.system.gates() : [];
+    for (let k = 0; k < 4; k++) {
+      const slot = { x: k % 2 ? 5.2 : -5.2, z: 14 + Math.floor(k / 2) * 9 };
+      const gate = gates[k] || null;
+      if (!gate && k >= 2) continue;
+      objs.push({ z: slot.z, draw: () => portal(slot, gate, m, T) });
+    }
+    const legion = SF.system && SF.system.legion ? SF.system.legion() : [];
+    legion.forEach((sh, i) => {
+      const row = Math.floor(i / 2), side = i % 2 ? 1 : -1, x = side * (2.7 + (row % 2) * 0.45), z = 7.4 + row * 3.6;
+      objs.push({ z: z, draw: () => {
+        const b = project(x, 0, z); if (!b) return;
+        const hh = 2.05 * clamp(sh.scale, 0.8, 1.6) * b.s * 0.62;
+        if (SF.system.drawFigure) SF.system.drawFigure(g, b.x, b.y, hh, { kind: sh.kind, eye: sh.eye, t: T + i, alpha: clamp(1.3 - z * 0.02, 0.45, 1) });
+        hits.push({ kind: 'shadow', x: b.x, y: b.y - hh * 0.5, r: hh * 0.32, data: sh, tip: sh.name + ': ' + sh.title });
+      } });
+    });
+    let orbPos = null;
+    objs.push({ z: 10.5, draw: () => { orbPos = altar(m, T); } });
+    objs.sort((a, b) => b.z - a.z).forEach((o) => o.draw());
+
+    // motes
+    motes.forEach((p) => {
+      p.y += p.v * dt; if (p.y > 6.5) p.y = 0;
+      const q = project(p.x + Math.sin(T * 0.4 + p.p) * 0.4, p.y, p.z); if (!q) return;
+      g.globalAlpha = clamp(0.9 - p.z * 0.02, 0.1, 0.8) * (0.5 + 0.5 * Math.sin(T * 2 + p.p));
+      g.fillStyle = 'rgba(' + m.b + ',1)'; g.beginPath(); g.arc(q.x, q.y, Math.max(0.8, q.s * 0.018), 0, 6.283); g.fill();
+    });
+    g.globalAlpha = 1;
+
+    // vignette
+    const vg = g.createRadialGradient(W / 2, Hh * 0.5, Hh * 0.35, W / 2, Hh * 0.5, Hh * 1.05);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(2,0,10,.72)');
+    g.fillStyle = vg; g.fillRect(0, 0, W, Hh);
+
+    // place the real WebGL orb on the altar
+    if (orbPos && orbCv) {
+      const size = orbPos.r * 3.125;
+      orbCv.style.width = size + 'px'; orbCv.style.height = size + 'px';
+      orbCv.style.transform = 'translate(' + (orbPos.x - size / 2) + 'px,' + (orbPos.y - size / 2) + 'px)';
+      orbCv.style.opacity = String(clamp(e * 1.4 - 0.2, 0, 1));
+      hits.push({ kind: 'orb', x: orbPos.x, y: orbPos.y, r: orbPos.r, tip: S.timer && S.timer.isRunning ? 'Return to your session' : 'Begin a focus session' });
+      if (orb && SF.orbSpec) { const sp = SF.orbSpec(); orb.setPalette(sp.pal[0], sp.pal[1], sp.pal[2]); orb.setEnergy(sp.energy); orb.setLight(false); }
+    }
+
+    // hover
+    const prev = hover; hover = null;
+    for (let i = hits.length - 1; i >= 0; i--) { const h = hits[i]; if (Math.hypot(mouse.px - h.x, mouse.py - h.y) <= h.r) { hover = h; break; } }
+    if (hover) hover.gate = hover.slot;
+    if (hover !== prev || hover) {
+      root.style.cursor = hover ? 'pointer' : 'default';
+      if (hover) { tip.hidden = false; tip.textContent = hover.tip; tip.style.transform = 'translate(' + (mouse.px + 16) + 'px,' + (mouse.py + 12) + 'px)'; } else tip.hidden = true;
+    }
+  }
+
+  function frame(now) {
+    raf = 0;
+    if (document.body.dataset.page !== 'home' || document.hidden) return;
+    if (now - last >= 30) draw(now);
+    raf = requestAnimationFrame(frame);
+  }
+
+  // ------------------------------------------------------------
+  // HUD + boot sequence
+  // ------------------------------------------------------------
+  function renderHud() {
+    if (!root) return;
+    const li = SF.levelInfo(SF.xpTotal()), st = SF.streaks(SF.studyDaily());
+    const sysOn = !!(SF.system && SF.system.rank);
+    const rank = sysOn ? SF.system.rank() : 'E';
+    $('#rhName').textContent = ($('#username') && $('#username').textContent) || 'Hunter';
+    $('#rhLine').textContent = 'Level ' + li.level + ' · ' + li.name;
+    $('#rhXp').style.width = Math.round(li.pct * 100) + '%';
+    const rk = $('#rhRank'); rk.className = 'sys-rank rh-rank rank-' + rank; rk.firstElementChild.textContent = rank;
+    $('#rhStreak').textContent = st.current;
+    const h = S.settings.hunter, q = h && h.quests && h.quests.list ? h.quests.list : [];
+    $('#rhQuests').innerHTML = q.length ? q.map((x) => '<i class="' + (x.done ? 'on' : '') + '"></i>').join('') + '<span>' + q.filter((x) => x.done).length + '/' + q.length + ' quests</span>' : '';
+    $('#rhHint').textContent = S.timer && S.timer.isRunning ? 'Your session is running. Click the orb to return.' : 'Click the orb to begin';
+  }
+
+  function boot() {
+    const box = $('#realmBoot'), pre = $('#realmBootText');
+    if (reduce || sessionStorage.getItem('sf_boot') === '1') { box.hidden = true; introDone = reduce; return; }
+    sessionStorage.setItem('sf_boot', '1');
+    const li = SF.levelInfo(SF.xpTotal());
+    const rank = SF.system && SF.system.rank ? SF.system.rank() : 'E';
+    const lines = ['> SYSTEM ONLINE', '> scanning hunter ......... ' + (($('#username') && $('#username').textContent) || 'unknown'), '> rank ' + rank + '   level ' + li.level, '> opening the realm'];
+    box.hidden = false; box.classList.remove('out'); pre.textContent = '';
+    let i = 0, j = 0;
+    const tick = () => {
+      if (i >= lines.length) { setTimeout(() => { box.classList.add('out'); setTimeout(() => { box.hidden = true; }, 700); }, 350); return; }
+      pre.textContent += lines[i][j] || ''; j++;
+      if (j > lines[i].length) { pre.textContent += '\n'; i++; j = 0; setTimeout(tick, 170); } else setTimeout(tick, 16);
+    };
+    tick();
+  }
+
+  // ------------------------------------------------------------
+  // interaction
+  // ------------------------------------------------------------
+  function dive(fn) {
+    if (diving) return;
+    diving = true;
+    const f = $('#realmFlash');
+    root.classList.add('dive'); f.classList.add('on');
+    setTimeout(() => { fn(); }, reduce ? 0 : 650);
+    setTimeout(() => { root.classList.remove('dive'); f.classList.remove('on'); diving = false; }, reduce ? 50 : 1300);
+  }
+  function wire() {
+    root.addEventListener('pointermove', (e) => {
+      const r = root.getBoundingClientRect();
+      mouse.px = e.clientX - r.left; mouse.py = e.clientY - r.top;
+      mouse.x = (mouse.px / r.width) * 2 - 1; mouse.y = (mouse.py / r.height) * 2 - 1;
+    });
+    root.addEventListener('pointerleave', () => { mouse.x = 0; mouse.y = 0; mouse.px = mouse.py = -999; if (tip) tip.hidden = true; });
+    root.addEventListener('click', () => {
+      if (!hover) return;
+      const h = hover;
+      if (h.kind === 'orb') dive(() => SF.navigate('focus'));
+      else if (h.kind === 'gate') dive(() => { if (h.data && SF.focusOn) SF.focusOn(h.data.subject); else SF.navigate('system'); });
+      else if (h.kind === 'shadow') dive(() => SF.navigate('system'));
+    });
+    $('#realmMore').addEventListener('click', () => { const b = $('.bento'); if (b) b.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  }
+
+  function start() {
+    root = $('#realm');
+    if (!root) return;
+    if (!cv) {
+      cv = $('#realmCanvas'); g = cv.getContext('2d'); orbCv = $('#realmOrb'); tip = $('#realmTip');
+      if (window.SFOrb && window.SFOrb.supported) orb = window.SFOrb.orb(orbCv);
+      wire();
+      introStart = performance.now();
+      boot();
+    }
+    renderHud();
+    if (!raf) { last = 0; raf = requestAnimationFrame(frame); }
+  }
+
+  SF.realm = { start: start, hud: renderHud };
 })();
