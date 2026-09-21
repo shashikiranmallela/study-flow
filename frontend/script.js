@@ -126,9 +126,26 @@
 
   const asArray = (v) => (Array.isArray(v) ? v : []);
 
+  function cleanSessions(list) {
+    return asArray(list).map((x) => {
+      if (!x || typeof x !== 'object') return null;
+      let d = x.date;
+      if (d && typeof d.toDate === 'function') d = d.toDate();        // Firestore Timestamp
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return null;
+      return { date: dt.toISOString(), duration: Math.max(0, Number(x.duration) || 0), type: x.type === 'break' ? 'break' : 'study', task: x.task ? String(x.task) : null };
+    }).filter(Boolean);
+  }
+  function cleanTodos(list) {
+    return asArray(list).filter((t) => t && typeof t === 'object' && t.text).map((t) => ({
+      id: t.id ? String(t.id) : newId(), text: String(t.text), completed: !!t.completed,
+      createdAt: t.createdAt || new Date().toISOString(), completedAt: t.completedAt || (t.completed ? new Date().toISOString() : null)
+    }));
+  }
+
   function loadAll() {
-    S.todos = asArray(storage.get('todos', [])).filter((t) => t && t.text);
-    S.sessions = asArray(storage.get('timeSessions', []));
+    S.todos = cleanTodos(storage.get('todos', []));
+    S.sessions = cleanSessions(storage.get('timeSessions', []));
     const r = storage.get('routine', null);
     S.routine = Array.isArray(r) && r.length ? r : JSON.parse(JSON.stringify(DEFAULT_ROUTINE));
     if (!T.interval) S.timer = Object.assign(defaultTimer(), storage.get('timerState', {}) || {});
@@ -345,7 +362,15 @@
     else if (page === 'focus') renderFocus();
     else if (page === 'tasks') renderTasks();
     else if (page === 'planner') renderPlanner();
-    else if (page === 'insights' && window.SF && window.SF.insights) window.SF.insights.render();
+    else if (page === 'insights') {
+      const sub = $('#insightsSub');
+      if (!window.SF || !window.SF.insights) {
+        sub.textContent = 'Insights could not load: insights.js is missing or failed to load on the server.';
+        sub.style.color = 'var(--ember)';
+      } else {
+        try { window.SF.insights.render(); } catch (e) { console.error(e); sub.textContent = 'Insights error: ' + (e && e.message); sub.style.color = 'var(--ember)'; }
+      }
+    }
     if (window.SFX) window.SFX.tilt(document);
   }
   function refreshAll() {

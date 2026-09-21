@@ -554,15 +554,22 @@
   }
 
   function render() {
-    const period = currentPeriod();
-    const r = rangeFor(period, currentBase());
-    syncControls();
-    renderKpis(r, period);
-    renderChart(r, period);
-    renderSubjects(r, period);
-    renderDone(r, period);
-    renderBadges();
-    Sky.render();
+    const errs = [];
+    const safe = (name, fn) => { try { fn(); } catch (e) { console.error('Insights ' + name + ':', e); errs.push(name + ': ' + (e && e.message)); } };
+    let period = 'week', r = null;
+    safe('range', () => { period = currentPeriod(); r = rangeFor(period, currentBase()); });
+    if (r) {
+      safe('controls', syncControls);
+      safe('kpis', () => renderKpis(r, period));
+      safe('chart', () => renderChart(r, period));
+      safe('subjects', () => renderSubjects(r, period));
+      safe('tasks', () => renderDone(r, period));
+      safe('trophies', renderBadges);
+      safe('skyline', () => Sky.render());
+    }
+    const sub = $('#insightsSub');
+    sub.textContent = errs.length ? 'Part of this page failed to load (' + errs.join('; ') + ')' : 'Where your time actually goes.';
+    sub.style.color = errs.length ? 'var(--ember)' : '';
   }
 
   function wire() {
