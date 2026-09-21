@@ -1,528 +1,498 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-accent="aurora">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StudyFlow</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>StudyFlow</title>
+  <meta name="description" content="StudyFlow: a focus timer, task list and study tracker with a living 3D orb, streaks and levels.">
+  <meta name="theme-color" content="#0e0a1a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g' cx='35%25' cy='30%25' r='75%25'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='.18' stop-color='%23ff9ad5'/%3E%3Cstop offset='.6' stop-color='%237f6bff'/%3E%3Cstop offset='1' stop-color='%231a1040'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='28' fill='url(%23g)'/%3E%3C/svg%3E">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+
+  <script>
+    /* apply saved look before first paint (no flash) */
+    try {
+      var t = JSON.parse(localStorage.getItem("theme"));
+      document.documentElement.dataset.theme = t === "light" ? "light" : "dark";
+      var s = JSON.parse(localStorage.getItem("settings") || "{}");
+      if (s.accent) document.documentElement.dataset.accent = s.accent;
+      if (s.lite) document.documentElement.classList.add("lite");
+    } catch (e) {}
+  </script>
 </head>
-<body>
-    <div id="loadingScreen" class="dots-loader">
-        <div></div><div></div><div></div>
-        <p>Syncing your StudyFlow...</p>
-    </div>
-    <script>
-    document.documentElement.classList.add("loading");
-    </script>
+<body data-page="home">
 
+  <!-- ============ SVG ICON SPRITE ============ -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2h5"/></symbol>
+    <symbol id="i-tasks" viewBox="0 0 24 24"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+    <symbol id="i-planner" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-insights" viewBox="0 0 24 24"><path d="M12 20V10M18 20V4M6 20v-4"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 4h3v16H8zM13 4h3v16h-3z"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+    <symbol id="i-rain" viewBox="0 0 24 24"><path d="M20 16.6A4.5 4.5 0 0 0 18 8h-1.3A7 7 0 1 0 4 14.9M8 19v2M12 19v2M16 19v2"/></symbol>
+    <symbol id="i-waves" viewBox="0 0 24 24"><path d="M2 8c2.5-3 5-3 7.5 0s5 3 7.5 0 3-2.5 5-3M2 14c2.5-3 5-3 7.5 0s5 3 7.5 0 3-2.5 5-3M2 20c2.5-3 5-3 7.5 0s5 3 7.5 0 3-2.5 5-3"/></symbol>
+    <symbol id="i-deep" viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-7h3zM3 19a2 2 0 0 0 2 2h1v-7H3z"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></symbol>
+    <symbol id="i-cup" viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 2v3M10 2v3M14 2v3"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-sunrise" viewBox="0 0 24 24"><path d="M17 18a5 5 0 0 0-10 0M12 2v7M4.2 10.2l1.4 1.4M1 18h2M21 18h2M18.4 11.6l1.4-1.4M23 22H1M8 6l4-4 4 4"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v15H6.5A2.5 2.5 0 0 0 4 19.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5"/></symbol>
+  </svg>
 
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <div class="logo">
-                <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                </svg>
-                <span>StudyFlow</span>
-            </div>
+  <!-- ============ BACKGROUND ============ -->
+  <div class="bg-fallback" aria-hidden="true"></div>
+  <canvas id="bgCanvas" aria-hidden="true"></canvas>
+
+  <!-- ============ LOADER ============ -->
+  <div id="loader" role="status" aria-live="polite">
+    <div class="loader-orb"></div>
+    <p>Syncing your StudyFlow</p>
+  </div>
+  <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;background:#0e0a1a;color:#fff;z-index:9999">StudyFlow needs JavaScript to run.</p></noscript>
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <a class="brand" href="#home" data-go="home" aria-label="StudyFlow home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">StudyFlow</span>
+    </a>
+
+    <div class="topbar-right">
+      <button class="chip chip-search" id="cmdBtn" type="button" aria-label="Open command menu">
+        <svg class="i"><use href="#i-search"/></svg>
+        <span class="chip-label">Jump to…</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+
+      <button class="chip chip-level" id="levelChip" type="button" data-go="insights" title="Your level">
+        <svg class="i"><use href="#i-bolt"/></svg>
+        <span id="levelChipText">Lv 1</span>
+        <span class="chip-xp"><i id="levelChipBar"></i></span>
+      </button>
+
+      <span class="sync" id="syncDot" role="img" aria-label="Sync status" title="Saved on this device"></span>
+
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme">
+        <svg class="i" id="themeIcon"><use href="#i-sun"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false">
+        <svg class="i"><use href="#i-sliders"/></svg>
+      </button>
+
+      <div class="auth-guest" id="guestAuth">
+        <a href="loginpage.html" class="btn btn-ghost btn-sm">Log in</a>
+        <a href="loginpage.html?mode=signup" class="btn btn-solid btn-sm">Sign up</a>
+      </div>
+
+      <div class="user-menu" id="userMenu" hidden>
+        <button class="avatar" id="avatarBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">S</button>
+        <div class="menu" id="userDropdown" role="menu" hidden>
+          <div class="menu-who"><strong id="menuName">Student</strong><span id="menuEmail"></span></div>
+          <button type="button" role="menuitem" id="logoutBtn"><svg class="i"><use href="#i-logout"/></svg>Log out</button>
         </div>
-        <nav class="sidebar-nav">
-            <a href="#" class="nav-item active" data-page="dashboard">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="7" height="7"/>
-                    <rect x="14" y="3" width="7" height="7"/>
-                    <rect x="14" y="14" width="7" height="7"/>
-                    <rect x="3" y="14" width="7" height="7"/>
-                </svg>
-                <span>Dashboard</span>
-            </a>
-            <a href="#" class="nav-item" data-page="todos">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="8" y1="6" x2="21" y2="6"/>
-                    <line x1="8" y1="12" x2="21" y2="12"/>
-                    <line x1="8" y1="18" x2="21" y2="18"/>
-                    <line x1="3" y1="6" x2="3.01" y2="6"/>
-                    <line x1="3" y1="12" x2="3.01" y2="12"/>
-                    <line x1="3" y1="18" x2="3.01" y2="18"/>
-                </svg>
-                <span>Todo List</span>
-            </a>
-            <a href="#" class="nav-item" data-page="timer">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <polyline points="12 6 12 12 16 14"/>
-                </svg>
-                <span>Time Tracker</span>
-            </a>
-            <a href="#" class="nav-item" data-page="routine">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                    <line x1="16" y1="2" x2="16" y2="6"/>
-                    <line x1="8" y1="2" x2="8" y2="6"/>
-                    <line x1="3" y1="10" x2="21" y2="10"/>
-                </svg>
-                <span>Daily Routine</span>
-            </a>
-            <a href="#" class="nav-item" data-page="stats">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="20" x2="12" y2="10"/>
-                    <line x1="18" y1="20" x2="18" y2="4"/>
-                    <line x1="6" y1="20" x2="6" y2="16"/>
-                </svg>
-                <span>Statistics</span>
-            </a>
-        </nav>
-        <a href="#" class="nav-item logout-link" id="logoutLink" style="display: none;">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ PAGES ============ -->
+  <main id="app">
+
+    <!-- ---------- HOME ---------- -->
+    <section class="page active" id="page-home" aria-labelledby="homeTitle">
+      <div class="bento">
+
+        <article class="tile tile-hero" data-tilt>
+          <div class="hero-copy">
+            <p class="hero-date" id="heroDate"></p>
+            <h1 id="homeTitle"><span id="greetWord">Hello</span>, <span id="username">friend</span></h1>
+            <p class="hero-sub" id="heroSub">Pick a subject and start a session.</p>
+            <form class="quick-start" id="quickStart" autocomplete="off">
+              <label class="sr" for="quickTask">What are you studying?</label>
+              <input id="quickTask" class="input" type="text" maxlength="60" placeholder="What are you studying?">
+              <button class="btn btn-solid" type="submit"><svg class="i i-fill"><use href="#i-play"/></svg>Start focus</button>
+            </form>
+          </div>
+          <div class="hero-orb">
+            <div class="orb-wrap" id="homeOrbWrap" data-state="idle">
+              <div class="orb-fallback"></div>
+              <canvas id="homeOrb" class="orb-canvas" aria-hidden="true"></canvas>
+              <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
+                <circle class="ring-track" cx="100" cy="100" r="94"/>
+                <circle class="ring-prog" id="homeRing" cx="100" cy="100" r="94"/>
+              </svg>
+              <div class="orb-readout">
+                <div class="orb-num" id="homeGoalNum">0m</div>
+                <div class="orb-cap" id="homeGoalCap">of 4h goal</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="tile tile-level" data-tilt>
+          <div class="tile-pop">
+            <h2 class="tile-title">Level</h2>
+            <div class="level-row">
+              <span class="level-num" id="levelNum">1</span>
+              <span class="level-name" id="levelName">Curious</span>
+            </div>
+            <div class="meter"><i id="levelBar"></i></div>
+            <p class="tile-note" id="levelNote">0 XP</p>
+          </div>
+        </article>
+
+        <article class="tile tile-streak" data-tilt>
+          <div class="tile-pop">
+            <h2 class="tile-title">Streak</h2>
+            <div class="streak-row">
+              <svg class="i streak-flame"><use href="#i-flame"/></svg>
+              <span class="streak-num" id="streakNum">0</span>
+              <span class="streak-unit">days</span>
+            </div>
+            <div class="week-dots" id="weekDots"></div>
+            <p class="tile-note" id="streakNote"></p>
+          </div>
+        </article>
+
+        <article class="tile tile-week" data-tilt>
+          <div class="tile-pop">
+            <div class="tile-head">
+              <h2 class="tile-title">Last 7 days</h2>
+              <span class="tile-total" id="weekTotal">0m</span>
+            </div>
+            <div class="bars bars-sm" id="weekBars"></div>
+          </div>
+        </article>
+
+        <article class="tile tile-next" data-tilt>
+          <div class="tile-pop">
+            <div class="tile-head">
+              <h2 class="tile-title">Up next</h2>
+              <a class="tile-link" href="#tasks" data-go="tasks">All tasks</a>
+            </div>
+            <ul class="mini-tasks" id="homeTasks"></ul>
+          </div>
+        </article>
+
+        <article class="tile tile-now" data-tilt>
+          <div class="tile-pop">
+            <div class="tile-head">
+              <h2 class="tile-title">Right now</h2>
+              <a class="tile-link" href="#planner" data-go="planner">Routine</a>
+            </div>
+            <div id="homeNow"></div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ---------- FOCUS ---------- -->
+    <section class="page" id="page-focus" aria-label="Focus timer">
+      <div class="focus-layout">
+
+        <aside class="panel focus-left">
+          <h2 class="panel-title">Focus on</h2>
+          <label class="sr" for="taskInput">What are you studying?</label>
+          <input id="taskInput" class="input" type="text" maxlength="60" placeholder="Subject, e.g. DSA" autocomplete="off">
+          <div class="chips" id="subjectChips"></div>
+          <h3 class="panel-sub">From your tasks</h3>
+          <ul class="pick-list" id="focusTaskPicks"></ul>
+        </aside>
+
+        <div class="focus-stage" id="focusStage">
+          <div class="stage-top">
+            <div class="seg" id="modeSeg" role="tablist" aria-label="Timer mode">
+              <button type="button" role="tab" data-mode="stopwatch">Stopwatch</button>
+              <button type="button" role="tab" data-mode="pomodoro">Pomodoro</button>
+            </div>
+            <div class="chips chips-center" id="pomoPresets" hidden>
+              <button type="button" class="chip chip-btn" data-f="25" data-b="5">25 / 5</button>
+              <button type="button" class="chip chip-btn" data-f="50" data-b="10">50 / 10</button>
+              <button type="button" class="chip chip-btn" data-f="90" data-b="20">90 / 20</button>
+            </div>
+          </div>
+
+          <div class="orb-wrap orb-wrap-lg" id="focusOrbWrap" data-state="idle">
+            <div class="orb-fallback"></div>
+            <canvas id="focusOrb" class="orb-canvas" aria-hidden="true"></canvas>
+            <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
+              <circle class="ring-track" cx="100" cy="100" r="94"/>
+              <circle class="ring-prog" id="ringProg" cx="100" cy="100" r="94"/>
             </svg>
-            <span>Logout</span>
-        </a>
-    </aside>
+            <div class="orb-readout">
+              <div class="timer-digits" id="timerDigits" role="timer" aria-live="off">00:00</div>
+              <div class="timer-sub" id="timerSub">Ready when you are</div>
+            </div>
+          </div>
 
-    <main class="main-content">
-        <header class="app-header">
-            <button class="sidebar-toggle" id="sidebarToggle">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="3" y1="12" x2="21" y2="12"/>
-                    <line x1="3" y1="6" x2="21" y2="6"/>
-                    <line x1="3" y1="18" x2="21" y2="18"/>
-                </svg>
+          <div class="controls">
+            <button class="round-btn" id="resetBtn" type="button" aria-label="Reset timer" title="Reset">
+              <svg class="i"><use href="#i-reset"/></svg>
             </button>
-            <div class="header-spacer"></div>
-            <div class="auth-buttons" id="guestAuth">
-                <a href="loginpage.html" class="btn btn-outline">Login</a>
-                <a href="loginpage.html?mode=signup" class="btn btn-primary">Sign Up</a>
-            </div>
-            <button class="theme-toggle" id="themeToggle">
-                <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="5"/>
-                    <line x1="12" y1="1" x2="12" y2="3"/>
-                    <line x1="12" y1="21" x2="12" y2="23"/>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                    <line x1="1" y1="12" x2="3" y2="12"/>
-                    <line x1="21" y1="12" x2="23" y2="12"/>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-                <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
+            <button class="big-btn" id="toggleBtn" type="button" aria-label="Start timer">
+              <svg class="i i-fill" id="toggleIcon"><use href="#i-play"/></svg>
             </button>
-        </header>
+            <button class="round-btn" id="endBtn" type="button" aria-label="End and save session" title="End and save" disabled>
+              <svg class="i"><use href="#i-check"/></svg>
+            </button>
+          </div>
 
-        <div class="content-area">
-            <div class="page active" id="dashboard">
-                <div class="hero-section">
-                    <h2>Welcome back, <span id="username">User</span>! </h2>
-                    <p>Ready to crush your goals today? Let's make it count!</p>
-                </div>
-
-                <div class="stats-grid" id="dashboardStats">
-                </div>
-
-                <div class="card streak-card">
-                     <div class="card-header streak-header">
-                        <div class="streak-summary">
-                            <h4 id="totalSubmissions">0 sessions in the past year</h4>
-                            <div class="streak-summary-details">
-                                <span>Total active days: <strong id="totalActiveDays">0</strong></span>
-                                <span>Max streak: <strong id="maxStreak">0</strong></span>
-                                <!-- NEW: Added Current Streak Display -->
-                                <span>Current streak: <strong id="currentStreak">0</strong></span>
-                            </div>
-                        </div>
-                         <select id="streakYearSelector" class="streak-year-selector"></select>
-                    </div>
-                    <div class="card-content">
-                        <div class="streak-calendar-container">
-                            <div id="streakCalendar" class="streak-calendar">
-                                <!-- JS will populate this -->
-                            </div>
-                        </div>
-                        <div class="streak-legend">
-                            <span>Less</span>
-                            <div class="streak-day streak-level-0"></div>
-                            <div class="streak-day streak-level-1"></div>
-                            <div class="streak-day streak-level-2"></div>
-                            <div class="streak-day streak-level-3"></div>
-                            <div class="streak-day streak-level-4"></div>
-                            <span>More</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bottom-grid">
-                    <div class="card recent-tasks-card">
-                        <div class="card-header">
-                            <h3>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px;">
-                                    <line x1="8" y1="6" x2="21" y2="6"/>
-                                    <line x1="8" y1="12" x2="21" y2="12"/>
-                                    <line x1="8" y1="18" x2="21" y2="18"/>
-                                    <line x1="3" y1="6" x2="3.01" y2="6"/>
-                                    <line x1="3" y1="12" x2="3.01" y2="12"/>
-                                    <line x1="3" y1="18" x2="3.01" y2="18"/>
-                                </svg>
-                                Recent Tasks
-                            </h3>
-                        </div>
-                        <div class="card-content" id="dashboardTasks">
-                            </div>
-                    </div>
-
-                    <div class="card tip-card green-tip-card">
-                        <div class="card-header">
-                            <h3>💡 Quick Tip</h3>
-                        </div>
-                        <div class="card-content">
-                            <p><strong>Try the Pomodoro Technique:</strong><br>
-                            Study for 25 minutes, then take a 5-minute break. After 4 sessions, take a longer 15-30 minute break.</p>
-                            <div class="tip-box">
-                                <p>⏱️ This helps maintain focus and prevents burnout!</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page" id="todos">
-                <h1>Todo List</h1>
-                <p class="page-subtitle">Organize your tasks and boost productivity</p>
-
-                <div class="card add-todo-card">
-                    <div class="card-header todo-add-header">
-                        <h3>
-                            <span class="tip-icon-purple">✨</span>
-                            Add New Task
-                        </h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="input-group todo-input-group">
-                            <input type="text" class="input" id="newTodo" placeholder="What do you need to do?">
-                            <button class="btn btn-primary btn-add-suffix" id="addTodoBtn">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <line x1="12" y1="5" x2="12" y2="19"/>
-                                    <line x1="5" y1="12" x2="19" y2="12"/>
-                                </svg>
-                                Add
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="todo-grid">
-                    <div class="card">
-                        <div class="card-header active-todo-header">
-                            <h3>
-                                <span class="pulse-dot"></span>
-                                Active Tasks (<span id="activeTodoCount">0</span>)
-                            </h3>
-                        </div>
-                        <div class="card-content">
-                            <ul class="task-list" id="activeTodos"></ul>
-                            <div class="empty-state-icon" id="activeTodoEmptyState" style="display: none;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                    <polyline points="22 4 12 14.01 9 11.01"/>
-                                </svg>
-                                <p>No active tasks. Great job! 👍</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header completed-todo-header">
-                            <h3>
-                                <span class="tip-icon-green">✅</span>
-                                Completed Tasks (<span id="completedTodoCount">0</span>)
-                            </h3>
-                        </div>
-                        <div class="card-content">
-                            <ul class="task-list" id="completedTodos"></ul>
-                            <div class="empty-state-icon" id="completedTodoEmptyState" style="display: none;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                    <polyline points="22 4 12 14.01 9 11.01"/>
-                                </svg>
-                                <p>No completed tasks yet.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page" id="timer">
-                <h1>Time Tracker</h1>
-                <p class="page-subtitle">Track your study sessions and breaks</p>
-
-                <div class="timer-grid">
-                    <div class="card timer-card" id="timerCard">
-                        <div class="card-header timer-header-study" id="timerHeader">
-                            <h3 id="timerTitle">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px;">
-                                    <polygon points="5 3 19 12 5 21 5 3"/>
-                                </svg>
-                                Study Timer
-                            </h3>
-                        </div>
-                        <div class="card-content timer-content">
-                            <div class="timer-input-group" id="taskInputGroup">
-                                <label>What are you studying?</label>
-                                <input type="text" class="input" id="currentTask" placeholder="e.g., Mathematics, Physics, History...">
-                            </div>
-
-                            <div class="timer-display-container">
-                                <div class="timer-display" id="timerDisplay">00:00:00</div>
-                            </div>
-
-                            <div class="timer-controls">
-                                <button class="btn btn-primary btn-lg btn-gradient" id="toggleTimerBtn">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <rect x="6" y="4" width="4" height="16"></rect>
-                                        <rect x="14" y="4" width="4" height="16"></rect>
-                                    </svg>
-                                    Start
-                                </button>
-                                <button class="btn btn-outline btn-lg" id="resetTimerBtn">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <polyline points="1 4 1 10 7 10"/>
-                                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                                    </svg>
-                                    Reset
-                                </button>
-                                <button class="btn btn-danger btn-lg" id="endSessionBtn" style="display: none;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                    </svg>
-                                    End
-                                </button>
-                            </div>
-
-                            <button class="btn btn-outline btn-full btn-switch-mode" id="toggleBreakBtn">
-                                Switch to Break Mode
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <h3>Today's Summary</h3>
-                        </div>
-                        <div class="card-content" id="todaySummary">
-                            </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page" id="routine">
-                <div class="routine-header-controls">
-                    <div>
-                        <h1>Daily Routine</h1>
-                        <p class="page-subtitle">Plan your perfect day for maximum productivity</p>
-                    </div>
-                    <button class="btn btn-primary" id="editRoutineBtn">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                        Edit
-                    </button>
-                </div>
-
-                <div class="card">
-                    <div class="card-header routine-schedule-header">
-                        <h3>Your Schedule</h3>
-                        <button class="btn btn-primary btn-sm" id="addSlotBtn" style="display: none;">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="12" y1="5" x2="12" y2="19"/>
-                                <line x1="5" y1="12" x2="19" y2="12"/>
-                            </svg>
-                            Add Slot
-                        </button>
-                    </div>
-                    <div class="card-content">
-                        <div class="routine-schedule" id="routineSchedule">
-                            </div>
-                    </div>
-                </div>
-
-                <div class="routine-tips">
-                    <div class="card">
-                        <div class="card-header"><h3><span class="tip-icon-yellow">💡</span> Tip</h3></div>
-                        <div class="card-content">
-                            <p class="small-text">Schedule your most challenging tasks during your peak productivity hours.</p>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header"><h3><span class="tip-icon-red">⏰</span> Reminder</h3></div>
-                        <div class="card-content">
-                            <p class="small-text">Don't forget to include regular breaks to maintain focus and energy.</p>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header"><h3><span class="tip-icon-purple">🎯</span> Goal</h3></div>
-                        <div class="card-content">
-                            <p class="small-text">Consistency is key. Stick to your routine for at least 21 days!</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="page" id="stats">
-                <div class="stats-header-controls">
-                    <div>
-                        <h1>Statistics</h1>
-                        <p class="page-subtitle">Track your progress and achievements</p>
-                    </div>
-                    <button class="btn btn-primary" data-page="full-report">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
-                        View Full Report
-                    </button>
-                </div>
-                
-                <div class="date-picker-container">
-                    <button class="btn btn-outline" id="datePickerBtn">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px; height:16px;">
-                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                            <line x1="16" y1="2" x2="16" y2="6"/>
-                            <line x1="8" y1="2" x2="8" y2="6"/>
-                            <line x1="3" y1="10" x2="21" y2="10"/>
-                        </svg>
-                        <span>View specific date</span>
-                    </button>
-                    <button class="btn btn-outline" id="clearDateBtn" style="display: none;">Clear</button>
-                    <div class="calendar-popup" id="calendarPopup"></div>
-                </div>
-
-                <div id="stats-default-view">
-                    <div class="tabs stats-tabs">
-                        <div class="tab-list" id="statsTabList">
-                            <button class="tab active" data-tab="today">Today</button>
-                            <button class="tab" data-tab="week">This Week</button>
-                            <button class="tab" data-tab="month">This Month</button>
-                            <button class="tab" data-tab="year">This Year</button>
-                        </div>
-                    </div>
-                    
-                    <div class="stats-grid" id="statsMainGrid" style="margin-top: 1.5rem;">
-                        </div>
-                    
-                    <div class="bottom-grid stats-bottom-grid">
-                        <div class="card time-by-subject-card">
-                            <div class="card-header">
-                                <h3><span class="tip-icon-purple">🕒</span> Time by Subject (All Time)</h3>
-                            </div>
-                            <div class="card-content" id="timeBySubject">
-                            </div>
-                        </div>
-
-                        <div class="card recent-completed-card">
-                            <div class="card-header">
-                                <h3><span class="tip-icon-green">✅</span> Recent Completed Tasks</h3>
-                            </div>
-                            <div class="card-content" id="recentCompletedTasks">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card progress-insights-card">
-                        <div class="card-header progress-insights-header">
-                            <h3><span class="tip-icon-purple">📊</span> Progress Insights</h3>
-                        </div>
-                        <div class="card-content" id="progressInsights">
-                             <p class="small-text">Start tracking your study time to see your progress here!</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="stats-custom-date-view" style="display: none;">
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 id="customDateTitle"></h3>
-                        </div>
-                        <div class="card-content">
-                            <div class="stats-grid" id="customDateStatsGrid"></div>
-                            
-                            <!-- NEW: Subjects Studied Section -->
-                            <h4 style="margin-top: 1.5rem;"><span class="tip-icon-purple">📚</span> Subjects Studied on this Day</h4>
-                            <div id="customDateStudySubjects" class="study-subject-list" style="margin-top: 1rem;"></div>
-                            <div class="empty-state-icon" id="customDateStudyEmptyState" style="display: none;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                <p>No study sessions were recorded on this day.</p>
-                            </div>
-
-                            <!-- Updated Tasks Completed Section -->
-                            <h4 style="margin-top: 1.5rem;"><span class="tip-icon-green">✅</span> Tasks Completed on this Day</h4>
-                            <ul class="task-list" id="customDateTasks" style="margin-top: 1rem;"></ul>
-                            <div class="empty-state-icon" id="customDateTaskEmptyState" style="display: none;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                                <p>No tasks were completed on this day.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="page" id="full-report">
-                <h1>Overall History Report</h1>
-                <p class="page-subtitle">A complete breakdown of all your activities.</p>
-                <div class="card">
-                    <div class="card-content">
-                        <div class="empty-state-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 64px; height: 64px; opacity: 0.1;">
-                                <line x1="12" y1="20" x2="12" y2="10"/>
-                                <line x1="18" y1="20" x2="18" y2="4"/>
-                                <line x1="6" y1="20" x2="6" y2="16"/>
-                            </svg>
-                            <p>This powerful reporting page is under construction. 🏗️</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+          <button class="link-btn" id="breakBtn" type="button">
+            <svg class="i"><use href="#i-cup"/></svg><span id="breakBtnText">Take a break instead</span>
+          </button>
         </div>
-    </main>
 
-    <div class="toast" id="toast"></div>
+        <aside class="panel focus-right">
+          <h2 class="panel-title">Ambience</h2>
+          <div class="sound-grid" id="soundGrid">
+            <button type="button" data-sound="rain"><svg class="i"><use href="#i-rain"/></svg>Rain</button>
+            <button type="button" data-sound="ocean"><svg class="i"><use href="#i-waves"/></svg>Ocean</button>
+            <button type="button" data-sound="deep"><svg class="i"><use href="#i-deep"/></svg>Deep</button>
+            <button type="button" data-sound="off" class="on"><svg class="i"><use href="#i-mute"/></svg>Off</button>
+          </div>
+          <label class="range-row"><span>Volume</span><input type="range" id="volume" min="0" max="1" step="0.05" value="0.5"></label>
 
-    <div class="modal" id="graphModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalTitle">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
-                        <line x1="12" y1="20" x2="12" y2="10"/>
-                        <line x1="18" y1="20" x2="18" y2="4"/>
-                        <line x1="6" y1="20" x2="6" y2="16"/>
-                    </svg>
-                    <span>Study Time Graph</span>
-                </h2>
-                <button class="modal-close" id="closeModal">&times;</button>
-            </div>
-            <div class="modal-body" id="modalBody">
-                </div>
+          <h2 class="panel-title mt">Today</h2>
+          <div id="todaySummary" class="summary"></div>
+
+          <button class="btn btn-ghost btn-block mt" id="zenBtn" type="button"><svg class="i"><use href="#i-expand"/></svg>Zen mode</button>
+        </aside>
+
+      </div>
+    </section>
+
+    <!-- ---------- TASKS ---------- -->
+    <section class="page" id="page-tasks" aria-labelledby="tasksTitle">
+      <header class="page-head">
+        <div>
+          <h1 id="tasksTitle">Tasks</h1>
+          <p class="page-sub" id="taskSub">Write it down, then get it done.</p>
         </div>
+        <div class="task-progress" id="taskProgress" hidden>
+          <div class="meter"><i id="taskProgressBar"></i></div>
+          <span id="taskProgressText"></span>
+        </div>
+      </header>
+
+      <form class="add-task" id="addTaskForm" autocomplete="off">
+        <label class="sr" for="newTodo">New task</label>
+        <input id="newTodo" class="input input-lg" type="text" maxlength="120" placeholder="Add a task and press Enter">
+        <button class="btn btn-solid" type="submit"><svg class="i"><use href="#i-plus"/></svg>Add task</button>
+      </form>
+
+      <div class="task-cols">
+        <section class="panel">
+          <h2 class="panel-title">To do <span class="count" id="activeCount">0</span></h2>
+          <ul class="task-list" id="activeTodos"></ul>
+          <p class="empty" id="activeEmpty" hidden>Nothing on your list. Add the one thing you'll finish today.</p>
+        </section>
+        <section class="panel">
+          <h2 class="panel-title">Done <span class="count" id="doneCount">0</span>
+            <button class="link-btn link-btn-sm" id="clearDone" type="button" hidden>Clear all</button>
+          </h2>
+          <ul class="task-list" id="doneTodos"></ul>
+          <p class="empty" id="doneEmpty" hidden>Finished tasks show up here for 30 days.</p>
+        </section>
+      </div>
+    </section>
+
+    <!-- ---------- PLANNER ---------- -->
+    <section class="page" id="page-planner" aria-labelledby="plannerTitle">
+      <header class="page-head">
+        <div>
+          <h1 id="plannerTitle">Daily routine</h1>
+          <p class="page-sub">A day with a shape is easier to show up for.</p>
+        </div>
+        <div class="head-actions">
+          <button class="btn btn-ghost" id="routineDefaults" type="button" hidden>Restore defaults</button>
+          <button class="btn btn-solid" id="routineEdit" type="button"><svg class="i"><use href="#i-pencil"/></svg><span>Edit</span></button>
+        </div>
+      </header>
+
+      <div class="planner-grid">
+        <section class="panel timeline-panel">
+          <div class="timeline" id="routineList"></div>
+          <button class="btn btn-ghost mt" id="addSlot" type="button" hidden><svg class="i"><use href="#i-plus"/></svg>Add slot</button>
+        </section>
+        <aside class="panel now-panel" id="nowPanel"></aside>
+      </div>
+    </section>
+
+    <!-- ---------- INSIGHTS ---------- -->
+    <section class="page" id="page-insights" aria-labelledby="insightsTitle">
+      <header class="page-head">
+        <div>
+          <h1 id="insightsTitle">Insights</h1>
+          <p class="page-sub" id="insightsSub">Where your time actually goes.</p>
+        </div>
+        <div class="head-actions">
+          <div class="seg" id="periodSeg" role="tablist" aria-label="Period">
+            <button type="button" role="tab" data-period="today">Today</button>
+            <button type="button" role="tab" data-period="week">Week</button>
+            <button type="button" role="tab" data-period="month">Month</button>
+            <button type="button" role="tab" data-period="year">Year</button>
+          </div>
+          <label class="date-pick" title="View a specific day">
+            <svg class="i"><use href="#i-planner"/></svg>
+            <span class="sr">Pick a day</span>
+            <input type="date" id="dayPick">
+          </label>
+          <button class="btn btn-ghost btn-sm" id="dayClear" type="button" hidden>Back to periods</button>
+        </div>
+      </header>
+
+      <div class="insight-grid">
+        <div class="kpis" id="kpis"></div>
+
+        <section class="panel chart-panel">
+          <h2 class="panel-title" id="chartTitle">Study time</h2>
+          <div class="bars" id="barChart"></div>
+        </section>
+
+        <section class="panel subjects-panel">
+          <h2 class="panel-title" id="subjectsTitle">Subjects</h2>
+          <div id="subjects"></div>
+        </section>
+
+        <section class="panel skyline-panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Study skyline</h2>
+              <p class="panel-hint">Every day you study becomes a tower. Drag to rotate.</p>
+            </div>
+            <div class="seg seg-sm" id="skyRange">
+              <button type="button" data-weeks="26">6 months</button>
+              <button type="button" data-weeks="52">1 year</button>
+            </div>
+          </div>
+          <div class="skyline-wrap" id="skylineWrap">
+            <canvas id="skyline" aria-label="3D skyline of your study days"></canvas>
+            <div class="sky-tip" id="skyTip" hidden></div>
+          </div>
+          <div class="sky-legend" aria-hidden="true"><span>Less</span><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>More</span></div>
+        </section>
+
+        <section class="panel trophies-panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Trophies</h2>
+              <p class="panel-hint" id="trophyHint">Hover a coin to see how to earn it.</p>
+            </div>
+          </div>
+          <div class="badges" id="badges"></div>
+        </section>
+
+        <section class="panel done-panel">
+          <h2 class="panel-title" id="doneTitle">Recently completed</h2>
+          <ul class="task-list task-list-compact" id="insightDone"></ul>
+          <p class="empty" id="insightDoneEmpty" hidden>Complete a task and it lands here.</p>
+        </section>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ DOCK ============ -->
+  <nav class="dock" id="dock" aria-label="Main">
+    <a href="#home" data-go="home" aria-current="page"><svg class="i"><use href="#i-home"/></svg><span>Home</span></a>
+    <a href="#focus" data-go="focus"><svg class="i"><use href="#i-focus"/></svg><span>Focus</span></a>
+    <a href="#tasks" data-go="tasks"><svg class="i"><use href="#i-tasks"/></svg><span>Tasks</span></a>
+    <a href="#planner" data-go="planner"><svg class="i"><use href="#i-planner"/></svg><span>Routine</span></a>
+    <a href="#insights" data-go="insights"><svg class="i"><use href="#i-insights"/></svg><span>Insights</span></a>
+  </nav>
+
+  <button class="btn btn-ghost zen-exit" id="zenExit" type="button" hidden><svg class="i"><use href="#i-x"/></svg>Exit zen</button>
+
+  <!-- ============ SETTINGS ============ -->
+  <div class="popover" id="settingsPop" role="dialog" aria-label="Settings" hidden>
+    <h2>Settings</h2>
+
+    <div class="set-row">
+      <span>Accent</span>
+      <div class="swatches" id="accentSwatches">
+        <button type="button" data-accent="aurora" aria-label="Aurora"></button>
+        <button type="button" data-accent="sunset" aria-label="Sunset"></button>
+        <button type="button" data-accent="matcha" aria-label="Matcha"></button>
+        <button type="button" data-accent="bubblegum" aria-label="Bubblegum"></button>
+      </div>
     </div>
 
-    <!-- FIREBASE v8 SDK -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <label class="set-row">
+      <span>Daily goal <small>hours</small></span>
+      <input type="number" id="goalInput" class="input input-sm" min="0.5" max="16" step="0.5">
+    </label>
+    <label class="set-row">
+      <span>Pomodoro focus <small>minutes</small></span>
+      <input type="number" id="focusMin" class="input input-sm" min="5" max="180" step="5">
+    </label>
+    <label class="set-row">
+      <span>Pomodoro break <small>minutes</small></span>
+      <input type="number" id="breakMin" class="input input-sm" min="1" max="60" step="1">
+    </label>
+    <label class="set-row">
+      <span>Chime when a session ends</span>
+      <span class="switch"><input type="checkbox" id="chimeToggle"><i></i></span>
+    </label>
+    <label class="set-row">
+      <span>Lite mode <small>no moving background, lighter on older phones</small></span>
+      <span class="switch"><input type="checkbox" id="liteToggle"><i></i></span>
+    </label>
+  </div>
 
-    <!-- 1) Initialise Firebase (config is built in - no backend needed) -->
-    <script src="firebase-init.js"></script>
+  <!-- ============ COMMAND PALETTE ============ -->
+  <div class="palette-backdrop" id="palette" hidden>
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Command menu">
+      <div class="palette-input">
+        <svg class="i"><use href="#i-search"/></svg>
+        <input id="paletteInput" type="text" placeholder="Type a command, or a task to add…" autocomplete="off" spellcheck="false">
+      </div>
+      <ul id="paletteList" role="listbox"></ul>
+      <p class="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> move <kbd>Enter</kbd> run <kbd>Esc</kbd> close</p>
+    </div>
+  </div>
 
-    <!-- 2) Main app logic (defines the global `storage` object) -->
-    <script src="script.js"></script>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <canvas id="fxCanvas" aria-hidden="true"></canvas>
 
-    <!-- 3) Cloud sync: wraps `storage` so every save also goes to Firestore.
-            Must load AFTER script.js. Each script is loaded exactly once. -->
-    <script src="firebase-wrapper.js"></script>
+  <!-- ============ SCRIPTS (order matters) ============ -->
+  <!-- 1) Firebase v8 SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <!-- 2) Firebase config (built in, no backend call) -->
+  <script src="firebase-init.js"></script>
+  <!-- 3) 3D orb + effects -->
+  <script src="orb.js"></script>
+  <script src="fx.js"></script>
+  <!-- 4) App -->
+  <script src="script.js"></script>
+  <script src="insights.js"></script>
+  <!-- 5) Cloud sync: wraps `storage` so every save also goes to Firestore. Must load AFTER script.js -->
+  <script src="firebase-wrapper.js"></script>
 </body>
 </html>

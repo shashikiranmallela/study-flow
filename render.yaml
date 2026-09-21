@@ -5,4 +5,8 @@ services:
     plan: free
     buildCommand: "pip install -r backend/requirements.txt"
     startCommand: "cd backend && gunicorn app:app"
-    
+    healthCheckPath: /health
+    envVars:
+      # Pin Python so a new Render default can never break the build again
+      - key: PYTHON_VERSION
+        value: 3.12.8

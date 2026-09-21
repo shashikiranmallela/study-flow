@@ -3,7 +3,7 @@
 // Keeps localStorage and Firestore (users/{uid}) in sync and tells
 // script.js when the first sync is finished ("cloud-sync-ready").
 //
-// Load order in index.html:  Firebase SDK -> firebase-init.js -> script.js -> this file
+// Load order in index.html:  Firebase SDK -> firebase-init.js -> orb.js -> fx.js -> script.js -> insights.js -> this file
 // ------------------------------------------------------------
 (function () {
   // never run twice (the old index.html loaded this file two times)
@@ -15,7 +15,7 @@
   // Only these keys are stored in the cloud
   const SYNC_KEYS = [
     "todos", "routine", "timeSessions", "timerState",
-    "currentStatsPeriod", "theme", "username"
+    "currentStatsPeriod", "theme", "username", "settings"
   ];
   const OWNER_KEY = "__dataOwner"; // uid that the data in localStorage belongs to
 
@@ -109,6 +109,7 @@
 
     if (typeof raw.currentStatsPeriod === "string") out.currentStatsPeriod = raw.currentStatsPeriod;
     if (typeof raw.theme === "string") out.theme = raw.theme;
+    if (raw.settings && typeof raw.settings === "object" && !Array.isArray(raw.settings)) out.settings = raw.settings;
     if (typeof raw.username === "string" && raw.username.trim()) out.username = raw.username.trim();
     return out;
   }

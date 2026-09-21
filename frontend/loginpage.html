@@ -1,364 +1,341 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-accent="aurora">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Login & Sign Up</title>
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Log in | StudyFlow</title>
+  <meta name="theme-color" content="#0e0a1a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g' cx='35%25' cy='30%25' r='75%25'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='.18' stop-color='%23ff9ad5'/%3E%3Cstop offset='.6' stop-color='%237f6bff'/%3E%3Cstop offset='1' stop-color='%231a1040'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='28' fill='url(%23g)'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    try {
+      var t = JSON.parse(localStorage.getItem("theme"));
+      document.documentElement.dataset.theme = t === "light" ? "light" : "dark";
+      var s = JSON.parse(localStorage.getItem("settings") || "{}");
+      if (s.accent) document.documentElement.dataset.accent = s.accent;
+    } catch (e) {}
+  </script>
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-      min-height:100vh;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:24px;
+    .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .auth-card {
+      width: min(980px, 100%); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden;
+      border-radius: var(--r-xl);
+      background: linear-gradient(160deg, var(--panel-a), var(--panel-b));
+      border: 1px solid var(--line);
+      backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%);
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .07);
+      animation: pageIn .6s cubic-bezier(.2, .8, .2, 1);
     }
-
-    .container{
-      width:100%;
-      max-width:850px;
-      height:500px;
-      background:#fff;
-      border-radius:14px;
-      overflow:hidden;
-      box-shadow:0 15px 50px rgba(0,0,0,0.25);
-      position:relative;
+    .auth-visual {
+      position: relative; padding: 34px; display: grid; align-content: space-between; gap: 18px;
+      background:
+        radial-gradient(70% 60% at 30% 25%, rgba(125, 95, 255, .30), transparent 70%),
+        radial-gradient(60% 50% at 80% 90%, rgba(60, 200, 255, .18), transparent 70%);
+      background:
+        radial-gradient(70% 60% at 30% 25%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
+        radial-gradient(60% 50% at 80% 90%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent 70%);
+      border-right: 1px solid var(--line);
     }
-
-    /* UPDATED TO SMOOTH 1.8 SEC ANIMATION */
-    .form-container{
-      position:absolute;
-      top:0;
-      height:100%;
-      width:50%;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      transition:transform 1.8s cubic-bezier(.25,.8,.25,1), opacity 1.2s;
-      padding:0 40px;
-      background:#fff;
-    }
-
-    form{ width:100%; max-width:380px; display:flex; flex-direction:column; }
-
-    h2{ font-size:2rem; margin-bottom:18px; text-align:left; font-weight:700; color:#111; }
-
-    .input-group{ margin-bottom:14px; }
-    input{
-      width:100%;
-      padding:12px 14px;
-      border-radius:8px;
-      border:1px solid #e0e0e0;
-      background:#f6f6f6;
-      font-size:14px;
-    }
-    input:focus{ outline:none; background:#fff; border-color:#000 }
-
-    button{
-      width:100%;
-      padding:12px;
-      border-radius:28px;
-      background:#000;
-      color:#fff;
-      border:none;
-      font-weight:700;
-      cursor:pointer;
-      margin-top:12px;
-    }
-    button:hover{ background:#222 }
-
-    .toggle-text{ margin-top:14px; text-align:center; color:#444; }
-    .toggle-link{ color:#000; font-weight:700; cursor:pointer }
-
-    .small-link{ text-align:left; margin-top:6px; color:#222; cursor:pointer; text-decoration:underline; font-size:0.92rem; }
-        .sign-in-container{ left:0; z-index:5; }
-    .sign-up-container{ right:0; left:auto; transform:translateX(100%); z-index:3; }
-
-    .container.sign-up-mode .sign-up-container{ transform:translateX(0); z-index:20; }
-    .container.sign-up-mode .sign-in-container{ transform:translateX(-100%); z-index:5; }
-
-    .forgot-container{
-      left:50%;
-      transform:translate(-50%, 0);
-      z-index:2;
-      opacity:0;
-      visibility:hidden;
-      transition: opacity 1.2s ease, visibility 1.2s;
-      pointer-events:none;
-    }
-
-
-    .container.forgot-mode .forgot-container{
-      transform:translate(-50%, 0);
-      opacity:1;
-      visibility:visible;
-      z-index:30;
-      pointer-events:auto;
-    }
-
-
-    .container.forgot-mode .sign-in-container{
-      transform:translateX(-100%);
-      z-index:5;
-    }
-
-    /* OVERLAY UPDATED TO 1.8s ANIMATION */
-    .overlay-container{
-      position:absolute;
-      top:0;
-      left:50%;
-      width:50%;
-      height:100%;
-      overflow:hidden;
-      transition:transform 1.8s cubic-bezier(.25,.8,.25,1);
-      z-index:1;
-    }
-    .overlay{
-      position:relative;
-      left:-100%;
-      width:200%;
-      height:100%;
-      background:linear-gradient(to right,#000,#161616);
-      transition:transform 1.8s cubic-bezier(.25,.8,.25,1);
-    }
-    .overlay-panel{
-      position:absolute;
-      width:50%;
-      height:100%;
-      display:flex;
-      flex-direction:column;
-      justify-content:center;
-      align-items:center;
-      padding:0 30px;
-      color:#fff;
-      text-align:center;
-    }
-
-    .overlay-left{ left:0 }
-    .overlay-right{ right:0 }
-
-    .container.sign-up-mode .overlay-container{ transform:translateX(-100%); }
-    .container.sign-up-mode .overlay{ transform:translateX(50%); }
-
-    .container.forgot-mode .overlay-container{ transform:translateX(-100%); }
-    .container.forgot-mode .overlay{ transform:translateX(100%); }
-
-    @media (max-width:760px){
-      .container{ max-width:100%; height:auto; padding:20px; }
-      .form-container{ position:relative; width:100%; transform:none; padding:10px 20px; }
-      .overlay-container{ display:none }
+    .auth-visual .orb-wrap { width: min(100%, 340px); }
+    #authTabs { justify-self: start; }
+    .auth-pitch h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 800; }
+    .auth-pitch p { color: var(--ink-2); margin-top: 10px; max-width: 26em; }
+    .auth-form-side { padding: clamp(26px, 4vw, 50px); display: grid; align-content: center; gap: 20px; min-width: 0; }
+    .auth-head h1 { font-size: 2rem; font-weight: 800; }
+    .auth-head p { color: var(--ink-2); margin-top: 6px; font-size: .95rem; }
+    .auth-form { display: grid; gap: 16px; }
+    .field { display: grid; gap: 7px; font-size: .88rem; font-weight: 600; color: var(--ink-2); }
+    .field .pw { position: relative; }
+    .field .pw .input { padding-right: 70px; }
+    .field .pw button { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 6px 10px; border-radius: 10px; font-size: .78rem; font-weight: 600; color: var(--ink-2); }
+    .field .pw button:hover { background: var(--line); color: var(--ink); }
+    .field small { font-weight: 400; color: var(--ink-3); font-size: .78rem; }
+    .auth-msg { padding: 11px 14px; border-radius: 14px; font-size: .88rem; line-height: 1.4; }
+    .auth-msg.err { background: color-mix(in srgb, var(--ember) 16%, transparent); border: 1px solid color-mix(in srgb, var(--ember) 45%, transparent); }
+    .auth-msg.ok { background: color-mix(in srgb, var(--mint) 16%, transparent); border: 1px solid color-mix(in srgb, var(--mint) 45%, transparent); }
+    .auth-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .btn[disabled] { opacity: .6; cursor: progress; }
+    .divider { display: flex; align-items: center; gap: 14px; color: var(--ink-3); font-size: .82rem; }
+    .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+    .g-mark { width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #4285f4; font: 800 .8rem/20px var(--font-display); text-align: center; }
+    .guest-link { text-align: center; font-size: .9rem; color: var(--ink-2); }
+    .guest-link a { color: var(--ink); font-weight: 600; }
+    .back-home { position: fixed; top: 18px; left: 22px; z-index: 5; }
+    @media (max-width: 800px) {
+      .auth-card { grid-template-columns: 1fr; }
+      .auth-visual { padding: 22px 22px 8px; border-right: 0; border-bottom: 1px solid var(--line); grid-template-columns: 110px 1fr; align-items: center; }
+      .auth-visual .orb-wrap { width: 110px; }
+      .auth-pitch p { display: none; }
+      .auth-pitch h2 { font-size: 1.2rem; }
+      .auth-visual .brand { display: none; }
     }
   </style>
 </head>
-
 <body>
-  <div class="container" id="container">
+  <div class="bg-fallback" aria-hidden="true"></div>
+  <canvas id="bgCanvas" aria-hidden="true"></canvas>
 
-    <!-- LOGIN -->
-    <div class="form-container sign-in-container" id="signInContainer">
-      <form id="signInForm">
-        <h2>Login</h2>
+  <main class="auth-shell">
+    <div class="auth-card">
 
-        <div class="input-group">
-          <input id="signinEmail" type="email" placeholder="Email" required />
+      <aside class="auth-visual">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">StudyFlow</span></a>
+        <div class="orb-wrap" id="authOrbWrap" data-gl="1" style="margin:0 auto">
+          <div class="orb-fallback"></div>
+          <canvas id="authOrb" class="orb-canvas" aria-hidden="true"></canvas>
+        </div>
+        <div class="auth-pitch">
+          <h2>Focus is a skill. Train it.</h2>
+          <p>A timer, a task list and a streak that keeps you honest. Your progress follows you to every device.</p>
+        </div>
+      </aside>
+
+      <section class="auth-form-side">
+        <div class="seg" id="authTabs" role="tablist" aria-label="Account">
+          <button type="button" role="tab" data-view="login">Log in</button>
+          <button type="button" role="tab" data-view="signup">Sign up</button>
         </div>
 
-        <div class="input-group">
-          <input id="signinPassword" type="password" placeholder="Password" required />
+        <!-- LOG IN -->
+        <form class="auth-form" id="loginForm" novalidate>
+          <div class="auth-head"><h1>Welcome back</h1><p>Pick up where you left off.</p></div>
+          <div class="auth-msg err" role="alert" hidden></div>
+          <label class="field">Email<input class="input" type="email" name="email" autocomplete="email" required placeholder="you@example.com"></label>
+          <label class="field">Password
+            <span class="pw"><input class="input" type="password" name="password" autocomplete="current-password" required placeholder="Your password"><button type="button" data-toggle-pw>Show</button></span>
+          </label>
+          <div class="auth-row">
+            <button class="btn btn-solid" type="submit">Log in</button>
+            <button class="link-btn" type="button" data-view="forgot">Forgot password?</button>
+          </div>
+        </form>
+
+        <!-- SIGN UP -->
+        <form class="auth-form" id="signupForm" novalidate hidden>
+          <div class="auth-head"><h1>Create your account</h1><p>Free, and it takes ten seconds.</p></div>
+          <div class="auth-msg err" role="alert" hidden></div>
+          <label class="field">Name<input class="input" type="text" name="username" autocomplete="nickname" maxlength="30" required placeholder="What should we call you?"></label>
+          <label class="field">Email<input class="input" type="email" name="email" autocomplete="email" required placeholder="you@example.com"></label>
+          <label class="field">Password
+            <span class="pw"><input class="input" type="password" name="password" autocomplete="new-password" minlength="6" required placeholder="At least 6 characters"><button type="button" data-toggle-pw>Show</button></span>
+          </label>
+          <button class="btn btn-solid" type="submit">Create account</button>
+        </form>
+
+        <!-- FORGOT -->
+        <form class="auth-form" id="forgotForm" novalidate hidden>
+          <div class="auth-head"><h1>Reset your password</h1><p>We'll email you a link to choose a new one.</p></div>
+          <div class="auth-msg" role="alert" hidden></div>
+          <label class="field">Email<input class="input" type="email" name="email" autocomplete="email" required placeholder="you@example.com"></label>
+          <div class="auth-row">
+            <button class="btn btn-solid" type="submit">Send reset link</button>
+            <button class="link-btn" type="button" data-view="login">Back to log in</button>
+          </div>
+        </form>
+
+        <div id="alt">
+          <div class="divider">or</div>
+          <button class="btn btn-ghost btn-block" type="button" id="googleBtn" style="margin-top:16px"><span class="g-mark" aria-hidden="true">G</span>Continue with Google</button>
+          <p class="guest-link" style="margin-top:16px">Just looking? <a href="index.html">Continue as guest</a></p>
         </div>
+      </section>
 
-        <div class="small-link" id="showForgot">Forgot Password?</div>
-
-        <button type="submit">Login</button>
-
-        <p class="toggle-text">Don't have an account? <span class="toggle-link" id="toSignUp">Sign up</span></p>
-      </form>
     </div>
+  </main>
 
-    <!-- SIGN UP -->
-    <div class="form-container sign-up-container" id="signUpContainer" aria-hidden="true">
-      <form id="signUpForm">
-        <h2>Sign Up</h2>
-
-        <div class="input-group">
-          <input id="signupUsername" type="text" placeholder="Username" required />
-        </div>
-
-        <div class="input-group">
-          <input id="signupEmail" type="email" placeholder="Email" required />
-        </div>
-
-        <div class="input-group">
-          <input id="signUpPassword" type="password" placeholder="Password" required />
-        </div>
-
-        <div class="input-group">
-          <input id="confirmSignUpPassword" type="password" placeholder="Confirm Password" required />
-        </div>
-
-        <p id="passwordError" style="color:red;display:none;margin-bottom:6px;"></p>
-
-        <button type="submit">Sign Up</button>
-
-        <p class="toggle-text">Already have an account? <span class="toggle-link" id="toLogin">Login</span></p>
-      </form>
-    </div>
-        <!-- FORGOT PASSWORD -->
-    <div class="form-container forgot-container" id="forgotContainer" aria-hidden="true">
-      <form id="forgotForm">
-        <h2>Forgot Password</h2>
-
-        <div class="input-group">
-          <input id="forgotEmailInput" type="email" placeholder="Enter your email" required />
-        </div>
-
-        <button type="submit">Send Reset Link</button>
-
-        <p class="toggle-text">Remembered? <span class="toggle-link" id="backToLogin">Back to Login</span></p>
-      </form>
-    </div>
-
-    <!-- OVERLAY -->
-    <div class="overlay-container" aria-hidden="true">
-      <div class="overlay" role="presentation">
-        <div class="overlay-panel overlay-left">
-          <h1 style="font-size:28px;margin-bottom:8px">HELLO, FRIEND!</h1>
-          <p style="max-width:260px">To keep connected with us, login with your personal info</p>
-        </div>
-
-        <div class="overlay-panel overlay-right">
-          <h1 style="font-size:28px;margin-bottom:8px">WELCOME BACK!</h1>
-          <p style="max-width:260px">Enter your personal details and start your journey with us</p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- FIREBASE -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-  
   <script src="firebase-init.js"></script>
-  <script src="firebase-wrapper.js"></script>
-  <script src="script.js"></script>
-
-
-
+  <script src="orb.js"></script>
   <script>
+    (function () {
+      "use strict";
+      var $ = function (s, r) { return (r || document).querySelector(s); };
+      var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+      var APP = "index.html";
+      var busy = false;
+      var leaving = false;
 
-    const showError = (message) => {
-      alert(`Error: ${message}`);
-    };
-
-    const container = document.getElementById('container');
-    const toSignUp = document.getElementById('toSignUp');
-    const toLogin = document.getElementById('toLogin');
-    const showForgot = document.getElementById('showForgot');
-    const backToLogin = document.getElementById('backToLogin');
-
-    function enterSignUp(){ container.classList.add('sign-up-mode'); container.classList.remove('forgot-mode'); }
-    function enterLogin(){ container.classList.remove('sign-up-mode'); container.classList.remove('forgot-mode'); }
-    function enterForgot(){ container.classList.add('forgot-mode'); container.classList.remove('sign-up-mode'); }
-
-    toSignUp.onclick = enterSignUp;
-    toLogin.onclick = enterLogin;
-    showForgot.onclick = enterForgot;
-    backToLogin.onclick = enterLogin;
-
-    // SIGNUP
-    document.getElementById('signUpForm').onsubmit = async(e)=>{
-      e.preventDefault();
-      let email = signupEmail.value;
-      let password = signUpPassword.value;
-      let confirm = confirmSignUpPassword.value;
-      let username = signupUsername.value.trim();
-    
-      if(!username) {
-        showError('Username is required');
-        return;
+      // ---------- 3D backdrop + orb ----------
+      var light = document.documentElement.dataset.theme === "light";
+      if (window.SFOrb && SFOrb.supported) {
+        var bg = SFOrb.backdrop($("#bgCanvas"));
+        if (bg) { bg.setPalette("#5b3df5", "#0fb3d9", "#0fb3d9"); bg.snapPalette(); }
+        var orb = SFOrb.orb($("#authOrb"), { palette: ["#7f6bff", "#ff7ad1", "#4fe3ff"] });
+        if (orb) { orb.setLight(light); orb.setEnergy(0.55); }
+        else $("#authOrbWrap").dataset.gl = "0";
+        document.addEventListener("pointermove", function (e) {
+          SFOrb.setMouse((e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1));
+        }, { passive: true });
+      } else {
+        $("#authOrbWrap").dataset.gl = "0";
       }
-    
-      if(password !== confirm){
-        passwordError.style.display = "block";
-        passwordError.textContent = "Passwords do not match!";
-        return;
+
+      // ---------- views ----------
+      var VIEWS = { login: "#loginForm", signup: "#signupForm", forgot: "#forgotForm" };
+      function setView(name) {
+        if (!VIEWS[name]) name = "login";
+        Object.keys(VIEWS).forEach(function (k) { $(VIEWS[k]).hidden = k !== name; });
+        $$("#authTabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.view === name || (name === "forgot" && b.dataset.view === "login")); });
+        $("#alt").hidden = name === "forgot";
+        document.title = (name === "signup" ? "Sign up" : name === "forgot" ? "Reset password" : "Log in") + " | StudyFlow";
+        clearMsg($(VIEWS[name]));
+        var first = $(VIEWS[name] + " input");
+        if (first && window.innerWidth > 800) first.focus();
       }
-      passwordError.style.display = "none";
-    
-      try{
-        const userCred = await firebase.auth().createUserWithEmailAndPassword(email, password);
-    
-        // 🔥 FIRST: update Firebase displayName
-        await userCred.user.updateProfile({
-          displayName: username
-        });
-    
-        // 🔥 Save login state so index shows LOGOUT
-        storage.set('isLoggedIn', true);
-        storage.set('username', username);
-    
-        // Initialize user in backend (Firestore)
-        const backendUrl = "https://study-flow-ea7b.onrender.com";
-    
-        await fetch(`${backendUrl}/api/user/init`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            uid: userCred.user.uid,
-            email: email,
-            username: username
+      document.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-view]");
+        if (b) { e.preventDefault(); setView(b.dataset.view); }
+        var t = e.target.closest("[data-toggle-pw]");
+        if (t) {
+          var input = t.parentNode.querySelector("input");
+          var show = input.type === "password";
+          input.type = show ? "text" : "password";
+          t.textContent = show ? "Hide" : "Show";
+        }
+      });
+      setView(new URLSearchParams(location.search).get("mode") === "signup" ? "signup" : "login");
+
+      // ---------- messages ----------
+      function msg(form, text, kind) {
+        var box = $(".auth-msg", form);
+        box.className = "auth-msg " + (kind || "err");
+        box.textContent = text;
+        box.hidden = !text;
+      }
+      function clearMsg(form) { msg(form, "", "err"); }
+      function friendly(err) {
+        var code = (err && err.code) || "";
+        var map = {
+          "auth/invalid-email": "That email address does not look right.",
+          "auth/user-not-found": "Email or password is incorrect.",
+          "auth/wrong-password": "Email or password is incorrect.",
+          "auth/invalid-credential": "Email or password is incorrect.",
+          "auth/invalid-login-credentials": "Email or password is incorrect.",
+          "auth/email-already-in-use": "An account with this email already exists. Try logging in instead.",
+          "auth/weak-password": "Password should be at least 6 characters.",
+          "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
+          "auth/network-request-failed": "No connection. Check your internet and try again.",
+          "auth/operation-not-allowed": "This sign-in method is not switched on yet in Firebase.",
+          "auth/unauthorized-domain": "This website is not authorised in Firebase yet (Authentication, Settings, Authorized domains).",
+          "auth/user-disabled": "This account has been disabled."
+        };
+        if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") return "";
+        return map[code] || "Something went wrong" + (code ? " (" + code + ")" : "") + ". Please try again.";
+      }
+      function loading(form, on, label) {
+        var b = $('button[type="submit"]', form);
+        if (!b.dataset.label) b.dataset.label = b.textContent;
+        b.disabled = on;
+        b.textContent = on ? label : b.dataset.label;
+      }
+      function goApp() {
+        if (leaving) return;
+        leaving = true;
+        location.href = APP;
+      }
+      function ready() {
+        if (window.firebase && firebase.apps && firebase.apps.length) return true;
+        var f = $(".auth-form:not([hidden])");
+        msg(f, "Could not reach the sign-in service. Check your connection or ad-blocker and reload.", "err");
+        return false;
+      }
+      function withTimeout(p, ms) {
+        return Promise.race([p, new Promise(function (r) { setTimeout(r, ms); })]);
+      }
+
+      // ---------- log in ----------
+      $("#loginForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var f = e.target;
+        clearMsg(f);
+        if (!ready()) return;
+        var email = f.email.value.trim(), pw = f.password.value;
+        if (!email || !pw) { msg(f, "Enter your email and password."); return; }
+        busy = true; loading(f, true, "Logging in…");
+        firebase.auth().signInWithEmailAndPassword(email, pw)
+          .then(goApp)
+          .catch(function (err) { busy = false; loading(f, false); msg(f, friendly(err)); });
+      });
+
+      // ---------- sign up ----------
+      $("#signupForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var f = e.target;
+        clearMsg(f);
+        if (!ready()) return;
+        var name = f.username.value.trim(), email = f.email.value.trim(), pw = f.password.value;
+        if (!name) { msg(f, "Tell us what to call you."); return; }
+        if (!email) { msg(f, "Enter your email."); return; }
+        if (pw.length < 6) { msg(f, "Password should be at least 6 characters."); return; }
+        busy = true; loading(f, true, "Creating account…");
+
+        var cred;
+        firebase.auth().createUserWithEmailAndPassword(email, pw)
+          .then(function (c) { cred = c; return c.user.updateProfile({ displayName: name }); })
+          .then(function () {
+            // Save the chosen name straight into the user's cloud document so it can never be
+            // overwritten by an e-mail prefix. (No backend call needed.)
+            return withTimeout(
+              firebase.firestore().collection("users").doc(cred.user.uid).set({
+                username: name,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+              }, { merge: true }).catch(function (err) { console.warn("profile write skipped:", err && err.code); }),
+              4000);
           })
+          .then(function () {
+            try { localStorage.setItem("username", JSON.stringify(name)); } catch (x) { /* ignore */ }
+            goApp();
+          })
+          .catch(function (err) { busy = false; loading(f, false); msg(f, friendly(err)); });
+      });
+
+      // ---------- forgot password ----------
+      $("#forgotForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var f = e.target;
+        clearMsg(f);
+        if (!ready()) return;
+        var email = f.email.value.trim();
+        if (!email) { msg(f, "Enter your email."); return; }
+        loading(f, true, "Sending…");
+        firebase.auth().sendPasswordResetEmail(email)
+          .then(function () { loading(f, false); msg(f, "If an account exists for " + email + ", a reset link is on its way. Check your spam folder too.", "ok"); })
+          .catch(function (err) {
+            loading(f, false);
+            // do not reveal whether an address is registered
+            if (err && err.code === "auth/user-not-found") msg(f, "If an account exists for " + email + ", a reset link is on its way. Check your spam folder too.", "ok");
+            else msg(f, friendly(err));
+          });
+      });
+
+      // ---------- Google ----------
+      $("#googleBtn").addEventListener("click", function () {
+        var f = $(".auth-form:not([hidden])");
+        clearMsg(f);
+        if (!ready()) return;
+        busy = true;
+        var provider = new firebase.auth.GoogleAuthProvider();
+        firebase.auth().signInWithPopup(provider)
+          .then(goApp)
+          .catch(function (err) {
+            if (err && err.code === "auth/popup-blocked") { firebase.auth().signInWithRedirect(provider); return; }
+            busy = false;
+            msg(f, friendly(err));
+          });
+      });
+      if (window.firebase && firebase.apps && firebase.apps.length) {
+        firebase.auth().getRedirectResult().then(function (r) { if (r && r.user) goApp(); }).catch(function (err) {
+          var m = friendly(err); if (m) msg($(".auth-form:not([hidden])"), m);
         });
-    
-        alert("Account created!");
-        window.location.href = "index.html";
-    
-      }catch(err){
-        console.error('Signup error:', err);
-        showError(err.message || 'Signup failed');
+        // already logged in? go straight to the app
+        firebase.auth().onAuthStateChanged(function (u) { if (u && !busy) goApp(); });
       }
-    };
-
-
-    // LOGIN
-    document.getElementById('signInForm').onsubmit = async(e)=>{
-      e.preventDefault();
-      let email = signinEmail.value;
-      let password = signinPassword.value;
-    
-      try{
-        const userCred = await firebase.auth().signInWithEmailAndPassword(email, password);
-    
-        // 🔥 FIX: store login state so index.html knows you're logged in
-        storage.set('isLoggedIn', true);
-        storage.set('username', userCred.user.displayName || userCred.user.email || "User");
-    
-        alert("Login successful!");
-        window.location.href = "index.html";
-      }catch(err){
-        console.error('Login error:', err);
-        showError(err.message || 'Login failed');
-      }
-    };
-
-    // FORGOT PASSWORD
-    document.getElementById('forgotForm').onsubmit = async(e)=>{
-      e.preventDefault();
-      let email = forgotEmailInput.value;
-
-      try{
-        await firebase.auth().sendPasswordResetEmail(email);
-        alert("Reset link sent to your email!");
-        enterLogin();
-      }catch(err){
-        console.error('Password reset error:', err);
-        showError(err.message || 'Failed to send reset email');
-      }
-    };
+    })();
   </script>
 </body>
 </html>

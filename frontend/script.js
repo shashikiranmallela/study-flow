@@ -1,773 +1,102 @@
-// -----------------------------
-// APP LOADING CONTROLLER
-// -----------------------------
+/* ============================================================
+   script.js  -  StudyFlow app logic
 
-// Show loader immediately
-document.documentElement.classList.add('loading');
-const loadingScreenEl = document.getElementById('loadingScreen');
-if (loadingScreenEl) loadingScreenEl.style.display = 'flex';
+   Data keys (same shapes as before, so existing cloud data keeps working):
+     todos         [{ id, text, completed, createdAt, completedAt }]
+     timeSessions  [{ date, duration(sec), type: 'study'|'break', task }]
+     routine       [{ id, time: '08:00 AM', activity }]
+     timerState    { seconds, isRunning, isBreak, currentTask, startTime }
+     theme         'dark' | 'light'
+     username      string
+     settings      { accent, goalHours, mode, focusMin, breakMin, volume, chime, lite, tasksDone }   (new)
 
-// Hide loader when ready
-function markAppReady() {
-  const loader = document.getElementById('loadingScreen');
-  if (loader) loader.style.display = 'none';
-  document.documentElement.classList.remove('loading');
-}
+   firebase-wrapper.js wraps window.storage.set so every save also reaches Firestore.
+   ============================================================ */
+'use strict';
 
-// Wait for firebase-wrapper.js to finish the first cloud sync.
-// (The wrapper ALWAYS sets the flag - even when Firebase is unreachable -
-//  and the 10s timeout below is only a last-resort safety net.)
-function waitForAppBoot() {
-  return new Promise(resolve => {
-    let finished = false;
-    let poll = null;
-    let failSafe = null;
+(function () {
+  // ------------------------------------------------------------
+  // tiny helpers
+  // ------------------------------------------------------------
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dayKey = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  const parseKey = (k) => { const p = k.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+  const newId = () => Date.now().toString() + Math.random().toString(36).slice(2, 7);
+  const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+  const ico = (name, cls) => '<svg class="i' + (cls ? ' ' + cls : '') + '"><use href="#i-' + name + '"/></svg>';
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      clearInterval(poll);
-      clearTimeout(failSafe);
-      resolve();
-    };
-    const check = () => { if (window.__firestoreDataLoaded) finish(); };
-
-    document.addEventListener('cloud-sync-ready', check);
-    poll = setInterval(check, 100);
-    failSafe = setTimeout(finish, 10000);
-    check();
-  });
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
-  await waitForAppBoot();
-  refreshStateFromStorage();   // pick up data the wrapper just pulled from Firestore
-  markAppReady();
-  navigateTo('dashboard');
-
-  if (window.__cloudSyncError) {
-    showToast('Cloud sync is unavailable right now - your changes are saved on this device only.', 6000);
+  function fmtShort(sec) {
+    sec = Math.max(0, Math.round(sec));
+    if (sec < 60) return sec > 0 ? sec + 's' : '0m';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return m ? h + 'h ' + m + 'm' : h + 'h';
+    return m + 'm';
   }
-});
-
-
-// Utility Functions
-const formatTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-};
-
-const formatTimeShort = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0) return `${minutes}m`;
-    return `${seconds}s`;
-};
-
-// Escape user text before putting it into innerHTML (prevents script injection)
-const escapeHTML = (value) => String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-// Local (not UTC!) calendar-date helpers.
-// toISOString() returns UTC, which shifts dates by a day in most timezones.
-const pad2 = (n) => String(n).padStart(2, '0');
-const localDateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const toLocalDate = (v) => {
-    if (v instanceof Date) return new Date(v.getTime());
-    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
-        const [y, m, d] = v.split('-').map(Number);
-        return new Date(y, m - 1, d);
-    }
-    return new Date(v);
-};
-
-// Add error handler for API calls
-const apiCall = async (url, options = {}) => {
-  try {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || `API error: ${response.statusText}`);
-    }
-    return await response.json();
-  } catch (error) {
-    console.error(`API call failed: ${error.message}`);
-    showToast(`Error: ${error.message}`);
-    throw error;
+  function timeAgo(iso) {
+    const t = new Date(iso).getTime();
+    if (!t) return '';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    const d = Math.floor(s / 86400);
+    return d === 1 ? 'yesterday' : d + ' days ago';
   }
-}
 
-const showToast = (message, duration = 3000) => {
-  try {
-    const toast = document.getElementById('toast');
-    if (!toast) {
-      console.error('Toast element not found');
-      return;
-    }
-    toast.textContent = message;
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), duration);
-  } catch (error) {
-    console.error('Error showing toast:', error);
-  }
-};
-
-const updateAuthUI = () => {
-  try {
-    const user = firebase.auth().currentUser;
-
-    const guestAuth = document.getElementById('guestAuth');
-    const logoutLink = document.getElementById('logoutLink');
-    const usernameSpan = document.getElementById('username');
-
-    if (user) {
-      // Logged in
-      if (guestAuth) guestAuth.style.display = 'none';
-      if (logoutLink) logoutLink.style.display = 'flex';
-
-      const savedName = storage.get('username', user.displayName || (user.email || 'User').split("@")[0]);
-      if (usernameSpan) usernameSpan.textContent = savedName;
-
-    } else {
-      // Logged out
-      if (guestAuth) guestAuth.style.display = 'flex';
-      if (logoutLink) logoutLink.style.display = 'none';
-    }
-
-  } catch (error) {
-    console.error('Error updating auth UI:', error);
-  }
-};
-
-
-// --- Logout ---
-const logoutLinkEl = document.getElementById('logoutLink');
-if (logoutLinkEl) {
-    logoutLinkEl.addEventListener('click', async (e) => {
-        e.preventDefault();
-        try {
-            // let pending Firestore writes finish before we lose our permissions
-            await Promise.race([
-                firebase.firestore().waitForPendingWrites(),
-                new Promise(resolve => setTimeout(resolve, 3000))
-            ]);
-        } catch (err) { console.warn('Could not flush pending writes:', err); }
-
-        try { await firebase.auth().signOut(); }
-        catch (err) { console.error('Sign out failed:', err); }
-
-        // Remove this user's data from the browser so the next person
-        // who logs in here never sees (or uploads) it.
-        try { localStorage.clear(); } catch (err) { /* ignore */ }
-        window.location.reload();
-    });
-}
-
-const removeStorage = (key) => {
-    localStorage.removeItem(key);
-};
-
-// Local Storage
-const storage = {
-    get: (key, defaultValue = null) => {
-        try {
-            const item = localStorage.getItem(key);
-            return item ? JSON.parse(item) : defaultValue;
-        } catch {
-            return defaultValue;
-        }
+  // ------------------------------------------------------------
+  // storage  (firebase-wrapper.js wraps .set to mirror into Firestore)
+  // ------------------------------------------------------------
+  const storage = {
+    get(key, def) {
+      if (def === undefined) def = null;
+      try {
+        const item = localStorage.getItem(key);
+        return item ? JSON.parse(item) : def;
+      } catch (e) { return def; }
     },
-    set: (key, value) => {
-        try {
-            localStorage.setItem(key, JSON.stringify(value));
-        } catch (e) {
-            console.warn('storage.set failed for', key, e);
-        }
+    set(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+      catch (e) { console.warn('storage.set failed', e); return false; }
     }
-};
-// firebase-wrapper.js wraps THIS object so every set() is also synced to Firestore
-window.storage = storage;
+  };
+  window.storage = storage;
 
-// --- App State ---
-let calendarDate = new Date();
-let streakYear = new Date().getFullYear();
+  // ------------------------------------------------------------
+  // toast (also used by firebase-wrapper.js)
+  // ------------------------------------------------------------
+  let toastTimer = 0;
+  function showToast(msg, ms) {
+    const el = $('#toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), ms || 3200);
+  }
+  window.showToast = showToast;
 
-// --- Navigation ---
-const pages = document.querySelectorAll('.page');
-const navItems = document.querySelectorAll('.nav-item');
+  // ------------------------------------------------------------
+  // look-and-feel data
+  // ------------------------------------------------------------
+  const ACCENTS = {
+    aurora:    { idle: ['#7f6bff', '#ff7ad1', '#4fe3ff'], bg: ['#5b3df5', '#0fb3d9'] },
+    sunset:    { idle: ['#ff7a59', '#ffc14d', '#ff5c8a'], bg: ['#ff5c8a', '#ff9a3c'] },
+    matcha:    { idle: ['#43d9a3', '#b8f26b', '#3ab7ff'], bg: ['#1fb98a', '#7bd63a'] },
+    bubblegum: { idle: ['#ff6fb5', '#8c7bff', '#6fd8ff'], bg: ['#ff4fa3', '#6a5cff'] }
+  };
+  const STATE_PAL = {
+    focus: ['#ff6b5e', '#ffb04a', '#ff5fa2'],
+    break: ['#3fe0b0', '#4fb0ff', '#a9f5dc']
+  };
+  const LEVEL_NAMES = ['Curious', 'Focused', 'Steady', 'Deep diver', 'In the zone', 'Flow state', 'Scholar', 'Sage', 'Grandmaster', 'Legend'];
+  const CIRC = 2 * Math.PI * 94;
 
-const navigateTo = (pageId) => {
-    pages.forEach(page => page.classList.remove('active'));
-    navItems.forEach(item => item.classList.remove('active'));
-    
-    const targetPage = document.getElementById(pageId);
-    let targetNav = document.querySelector(`.nav-item[data-page="${pageId}"]`);
-
-    if(pageId === 'full-report'){
-        targetNav = document.querySelector(`.nav-item[data-page="stats"]`);
-    }
-    
-    if (targetPage) targetPage.classList.add('active');
-    if (targetNav) targetNav.classList.add('active');
-    
-    if (window.innerWidth <= 768) {
-        sidebar.classList.remove('active');
-    }
-    updateAuthUI();
-
-    if (pageId === 'dashboard') updateDashboard();
-    if (pageId === 'stats') {
-        selectedStatsDate = null; 
-        document.querySelector('#datePickerBtn span').textContent = 'View specific date';
-        currentStatsPeriod = storage.get('currentStatsPeriod', 'today');
-        updateStats(); 
-    }
-    if (pageId === 'timer') updateTimerSummary();
-    if (pageId === 'routine') {
-        isEditingRoutine = false;
-        document.getElementById('editRoutineBtn').innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit`;
-        document.getElementById('addSlotBtn').style.display = 'none';
-        loadRoutine();
-        renderRoutine();
-    }
-    if (pageId === 'todos') renderTasks();
-};
-
-document.querySelectorAll('[data-page]').forEach(item => {
-    item.addEventListener('click', (e) => {
-        e.preventDefault();
-        const page = item.dataset.page;
-        if (page) navigateTo(page);
-    });
-});
-
-// --- Sidebar Toggle ---
-const sidebarToggle = document.getElementById('sidebarToggle');
-const sidebar = document.getElementById('sidebar');
-
-sidebarToggle.addEventListener('click', () => {
-    sidebar.classList.toggle('active');
-});
-
-// --- Theme Toggle ---
-const themeToggle = document.getElementById('themeToggle');
-const currentTheme = storage.get('theme', 'light');
-
-if (currentTheme === 'dark') {
-    document.documentElement.classList.add('dark');
-} else {
-    document.documentElement.classList.remove('dark');
-}
-
-themeToggle.addEventListener('click', () => {
-    document.documentElement.classList.toggle('dark');
-    const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-    storage.set('theme', theme);
-});
-
-// --- Dashboard ---
-const updateDashboard = () => {
-    const sessions = storage.get('timeSessions', []);
-    const todos = storage.get('todos', []);
-    const today = new Date().toDateString();
-    
-    const todayStudy = sessions
-        .filter(s => new Date(s.date).toDateString() === today && s.type === 'study')
-        .reduce((acc, s) => acc + s.duration, 0);
-    
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekStudy = sessions
-        .filter(s => new Date(s.date) >= weekAgo && s.type === 'study')
-        .reduce((acc, s) => acc + s.duration, 0);
-    
-    const completedTodos = todos.filter(t => t.completed).length;
-    const totalTodos = todos.length;
-    
-    const statsHtml = `
-        <div class="stat-card">
-            <div class="stat-header">
-                <span class="stat-label">Today's Study Time</span>
-                <div class="stat-icon primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <polyline points="12 6 12 12 16 14"/>
-                    </svg>
-                </div>
-            </div>
-            <div class="stat-value primary">${formatTimeShort(todayStudy)}</div>
-            <p class="stat-description">${todayStudy > 0 ? 'Keep up the great work! 👍' : 'Start your study session!'}</p>
-        </div>
-        
-        <div class="stat-card">
-            <div class="stat-header">
-                <span class="stat-label">This Week</span>
-                <div class="stat-icon success">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="12" y1="20" x2="12" y2="10"/>
-                        <line x1="18" y1="20" x2="18" y2="4"/>
-                        <line x1="6" y1="20" x2="6" y2="16"/>
-                    </svg>
-                </div>
-            </div>
-            <div class="stat-value success">${formatTimeShort(weekStudy)}</div>
-            <p class="stat-description">Total study time this week</p>
-        </div>
-        
-        <div class="stat-card">
-            <div class="stat-header">
-                <span class="stat-label">Tasks Completed</span>
-                <div class="stat-icon success">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                        <polyline points="22 4 12 14.01 9 11.01"/>
-                    </svg>
-                </div>
-            </div>
-            <div class="stat-value success">${completedTodos}/${totalTodos}</div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${totalTodos > 0 ? (completedTodos / totalTodos) * 100 : 0}%"></div>
-            </div>
-            <p class="stat-description">${completedTodos === totalTodos && totalTodos > 0 ? 'All done! 🎉' : `${totalTodos > 0 ? Math.round((completedTodos / totalTodos) * 100) : 0}% complete`}</p>
-        </div>`;
-    
-    document.getElementById('dashboardStats').innerHTML = statsHtml;
-    
-    const recentTodos = [...todos].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const tasksHtml = todos.length === 0 ? 
-        '<div class="empty-state-icon"><p>No tasks yet. Create your first todo!</p></div>' :
-        '<ul class="task-preview-list">' + recentTodos.slice(0, 5).map(todo => `
-            <li class="task-preview-item">
-                ${todo.completed ? 
-                    `<div class="task-icon completed"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>` :
-                    '<div class="task-icon pending"></div>'}
-                <span class="${todo.completed ? 'completed' : ''}">${escapeHTML(todo.text)}</span>
-            </li>
-        `).join('') + '</ul>';
-    
-    document.getElementById('dashboardTasks').innerHTML = tasksHtml;
-
-    // Streak Calendar
-    setupStreakCalendar();
-};
-
-// --- Todo List ---
-let todos = storage.get("todos", []) || [];
-
-document.addEventListener("cloud-sync-ready", () => {
-    refreshStateFromStorage();
-    updateAuthUI();
-    renderTasks();
-    updateDashboard();
-});
-
-
-
-
-const renderTasks = () => {
-    const activeTodosList = document.getElementById('activeTodos');
-    const completedTodosList = document.getElementById('completedTodos');
-    const activeEmptyState = document.getElementById('activeTodoEmptyState');
-    const completedEmptyState = document.getElementById('completedTodoEmptyState');
-    
-    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    
-    if (!Array.isArray(todos)) return;
-
-    const todoCountBefore = todos.length;
-    todos = todos.filter(t => {
-        if (!t) return false;
-        if (!t.completed) return true;
-        if (!t.completedAt) return false;
-        return new Date(t.completedAt).getTime() > oneWeekAgo;
-    });
-    
-    // Only persist when something was actually pruned (avoids a Firestore write on every render)
-    if (todos.length !== todoCountBefore) storage.set("todos", todos);
-
-    
-    const activeTodos = todos.filter(t => !t.completed);
-    const completedTodos = todos.filter(t => t.completed);
-    
-    document.getElementById('activeTodoCount').textContent = activeTodos.length;
-    document.getElementById('completedTodoCount').textContent = completedTodos.length;
-    
-    activeTodosList.innerHTML = activeTodos.map(todo => createTaskElement(todo)).join('');
-    completedTodosList.innerHTML = completedTodos.map(todo => createTaskElement(todo)).join('');
-    
-    activeEmptyState.style.display = activeTodos.length ? 'none' : 'flex';
-    completedEmptyState.style.display = completedTodos.length ? 'none' : 'flex';
-
-    addEventListenersForTasks('#activeTodos');
-    addEventListenersForTasks('#completedTodos');
-};
-
-const createTaskElement = (todo) => {
-    return `
-        <li class="task-item ${todo.completed ? 'completed' : ''}" data-id="${escapeHTML(todo.id)}">
-            <input type="checkbox" class="task-checkbox" ${todo.completed ? 'checked' : ''} data-id="${escapeHTML(todo.id)}">
-            <span class="task-text">${escapeHTML(todo.text)}</span>
-            <div class="task-actions">
-                <button class="task-action-btn task-edit" data-id="${escapeHTML(todo.id)}">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
-                <button class="task-action-btn task-delete" data-id="${escapeHTML(todo.id)}">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
-            </div>
-        </li>
-    `;
-};
-
-const handleEditTask = (taskId) => {
-    const taskItem = document.querySelector(`.task-item[data-id="${taskId}"]`);
-    if (!taskItem || taskItem.classList.contains('is-editing')) return;
-
-    taskItem.classList.add('is-editing');
-
-    const taskTextSpan = taskItem.querySelector('.task-text');
-    const currentText = taskTextSpan.textContent;
-    
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = currentText;
-    input.className = 'input task-edit-input';
-
-    let editFinished = false;
-    const saveEdit = () => {
-        if (editFinished) return;
-        editFinished = true;
-        const newText = input.value.trim();
-        const todo = todos.find(t => t && t.id === taskId);
-        if (todo && newText) {
-            todo.text = newText;
-            storage.set('todos', todos);
-            showToast('Task updated!');
-        }
-        // Re-render the relevant view to exit editing mode
-        if (document.getElementById('todos').classList.contains('active')) renderTasks();
-        else if (document.getElementById('stats').classList.contains('active')) updateStats();
-    };
-
-    input.addEventListener('blur', saveEdit);
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveEdit();
-        if (e.key === 'Escape') {
-             editFinished = true;
-             if (document.getElementById('todos').classList.contains('active')) renderTasks();
-             else if (document.getElementById('stats').classList.contains('active')) updateStats();
-        }
-    });
-
-    taskTextSpan.replaceWith(input);
-    input.focus();
-};
-
-const handleDeleteTask = (taskId) => {
-    todos = todos.filter(t => t.id !== taskId);
-    storage.set('todos', todos);
-    
-    if (document.getElementById('todos').classList.contains('active')) {
-        renderTasks();
-    }
-    if (document.getElementById('stats').classList.contains('active')) {
-        updateStats();
-    }
-    if (document.getElementById('dashboard').classList.contains('active')) {
-        updateDashboard();
-    }
-    showToast('Task deleted');
-};
-
-
-// Delegated listeners, attached only ONCE per container.
-// (Before, a new click listener was stacked on every render, so one click
-//  could fire many times.)
-const taskListenersAttached = new WeakSet();
-const addEventListenersForTasks = (containerSelector) => {
-    const container = document.querySelector(containerSelector);
-    if (!container || taskListenersAttached.has(container)) return;
-    taskListenersAttached.add(container);
-
-    container.addEventListener('click', (e) => {
-        const editBtn = e.target.closest('.task-edit');
-        if (editBtn) {
-            handleEditTask(editBtn.dataset.id);
-            return;
-        }
-
-        const deleteBtn = e.target.closest('.task-delete');
-        if (deleteBtn) {
-            handleDeleteTask(deleteBtn.dataset.id);
-        }
-    });
-
-    container.addEventListener('change', (e) => {
-        if (!e.target.classList.contains('task-checkbox')) return;
-
-        const todoId = e.target.dataset.id;
-        const todoItem = todos.find(t => t && t.id === todoId);
-        if (todoItem) {
-            todoItem.completed = e.target.checked;
-            todoItem.completedAt = e.target.checked ? (todoItem.completedAt || new Date().toISOString()) : null;
-            storage.set('todos', todos);
-
-            renderTasks();
-            if (document.getElementById('stats').classList.contains('active')) {
-                updateStats();
-            }
-            if (document.getElementById('dashboard').classList.contains('active')) {
-                updateDashboard();
-            }
-            showToast(e.target.checked ? 'Task completed! ✅' : 'Task reopened');
-        }
-    });
-};
-
-document.getElementById('addTodoBtn').addEventListener('click', () => {
-    const input = document.getElementById('newTodo');
-    const text = input.value.trim();
-    
-    if (text) {
-        todos.unshift({
-            id: Date.now().toString(),
-            text,
-            completed: false,
-            createdAt: new Date().toISOString()
-        });
-        storage.set('todos', todos);
-        input.value = '';
-        renderTasks();
-        showToast('Task added! ✨');
-    }
-});
-
-document.getElementById('newTodo').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        document.getElementById('addTodoBtn').click();
-    }
-});
-
-// --- Timer ---
-const defaultTimerState = () => ({
-    seconds: 0,
-    isRunning: false,
-    isBreak: false,
-    currentTask: '',
-    startTime: null
-});
-let timerState = storage.get('timerState', defaultTimerState());
-
-let timerInterval = null;
-
-const updateTimerDisplay = () => {
-    const seconds = timerState.isRunning
-        ? Math.floor((Date.now() - timerState.startTime) / 1000)
-        : timerState.seconds;
-    document.getElementById('timerDisplay').textContent = formatTime(seconds);
-};
-
-const updateTimerSummary = () => {
-    const sessions = storage.get('timeSessions', []);
-    const today = new Date().toDateString();
-    
-    const todaySessions = sessions.filter(s => new Date(s.date).toDateString() === today);
-    const studyTime = todaySessions.filter(s => s.type === 'study').reduce((acc, s) => acc + s.duration, 0);
-    const breakTime = todaySessions.filter(s => s.type === 'break').reduce((acc, s) => acc + s.duration, 0);
-    const sessionCount = todaySessions.length;
-    
-    document.getElementById('todaySummary').innerHTML = `
-        <div class="summary-item">
-            <span class="summary-label">Study Time</span>
-            <span class="summary-value-timer primary">${formatTime(studyTime)}</span>
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">Goal: 8h</span>
-            <div class="progress-bar" style="width: 120px; flex-shrink: 0;"><div class="progress-fill" style="background: hsl(var(--primary)); width: ${Math.min((studyTime / (8 * 3600)) * 100, 100)}%"></div></div>
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">Break Time</span>
-            <span class="summary-value-timer success">${formatTime(breakTime)}</span>
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">Recommended: 2h</span>
-            <div class="progress-bar" style="width: 120px; flex-shrink: 0;"><div class="progress-fill" style="width: ${Math.min((breakTime / (2 * 3600)) * 100, 100)}%"></div></div>
-        </div>
-        <div class="summary-item">
-            <span class="summary-label">Sessions Today</span>
-            <span class="summary-value">${sessionCount}</span>
-        </div>`;
-};
-
-const startTimer = (resume = false) => {
-    if (timerInterval) return;
-
-    // When resuming after a page refresh keep the ORIGINAL start time
-    if (!(resume && timerState.startTime)) {
-        timerState.startTime = Date.now() - (timerState.seconds * 1000);
-    }
-    timerState.isRunning = true;
-    storage.set('timerState', timerState);   // so a refresh doesn't lose the running session
-    
-    timerInterval = setInterval(updateTimerDisplay, 1000);
-    
-    document.getElementById('toggleTimerBtn').innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>Pause`;
-    document.getElementById('endSessionBtn').style.display = 'inline-flex';
-    document.getElementById('currentTask').disabled = true;
-};
-
-const pauseTimer = () => {
-    if (!timerInterval) return;
-    
-    clearInterval(timerInterval);
-    timerInterval = null;
-    timerState.isRunning = false;
-    timerState.seconds = Math.floor((Date.now() - timerState.startTime) / 1000);
-    storage.set('timerState', timerState);
-    
-    document.getElementById('toggleTimerBtn').innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>Start`;
-};
-
-const endSession = (showMsg = true) => {
-    const sessionDuration = timerState.isRunning ? Math.floor((Date.now() - timerState.startTime) / 1000) : timerState.seconds;
-
-    if (sessionDuration > 0) {
-        const sessions = storage.get('timeSessions', []);
-        sessions.push({
-            date: new Date().toISOString(),
-            duration: sessionDuration,
-            type: timerState.isBreak ? 'break' : 'study',
-            task: !timerState.isBreak ? (timerState.currentTask || null) : null   // never undefined - Firestore rejects it
-        });
-        storage.set('timeSessions', sessions);
-        
-        if (showMsg) showToast(`${timerState.isBreak ? 'Break completed!' : 'Study session saved!'} Duration: ${formatTimeShort(sessionDuration)}`);
-    }
-    
-    pauseTimer();
-    timerState.seconds = 0;
-    timerState.currentTask = document.getElementById('currentTask').value;
-    storage.set('timerState', timerState);
-    
-    document.getElementById('currentTask').disabled = false;
-    document.getElementById('endSessionBtn').style.display = 'none';
-    updateTimerDisplay();
-    updateTimerSummary();
-    
-    // Update dashboard streak if visible
-    if(document.getElementById('dashboard').classList.contains('active')) {
-        updateDashboard();
-    }
-};
-
-const resetTimer = () => {
-    pauseTimer();
-    timerState.seconds = 0;
-    timerState.currentTask = '';
-    storage.set('timerState', timerState);
-    
-    document.getElementById('currentTask').value = '';
-    document.getElementById('currentTask').disabled = false;
-    document.getElementById('endSessionBtn').style.display = 'none';
-    updateTimerDisplay();
-};
-
-const toggleBreakMode = () => {
-    if (timerState.isRunning || timerState.seconds > 0) {
-        endSession(false);
-    }
-    resetTimer();
-
-    timerState.isBreak = !timerState.isBreak;
-    storage.set('timerState', timerState);
-    updateTimerVisuals();
-    showToast(`${timerState.isBreak ? 'Break mode activated' : 'Study mode activated'}`);
-};
-
-const updateTimerVisuals = () => {
-    const card = document.getElementById('timerCard');
-    const title = document.getElementById('timerTitle');
-    const toggleBtn = document.getElementById('toggleBreakBtn');
-    const taskInput = document.getElementById('taskInputGroup');
-    
-    card.classList.toggle('break-mode', timerState.isBreak);
-    taskInput.style.display = timerState.isBreak ? 'none' : 'flex';
-    toggleBtn.textContent = timerState.isBreak ? 'Switch to Study Mode' : 'Switch to Break Mode';
-    title.innerHTML = timerState.isBreak
-        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px;"><path d="M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>Break Timer`
-        : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>Study Timer`;
-
-    updateTimerDisplay();
-};
-
-// Resume a timer that was running when the page was refreshed/closed
-const resumeTimerIfRunning = () => {
-    if (timerInterval || !timerState.isRunning) return;
-
-    const elapsedMs = Date.now() - (timerState.startTime || 0);
-    if (timerState.startTime && elapsedMs < 12 * 60 * 60 * 1000) {
-        startTimer(true);
-    } else {
-        // stale (page was closed for many hours) - drop it instead of logging a huge session
-        timerState.isRunning = false;
-        timerState.seconds = 0;
-        timerState.startTime = null;
-        storage.set('timerState', timerState);
-    }
-};
-
-// Re-read everything that script.js cached at load time, AFTER the cloud sync finished.
-// (Without this, a stale local copy could overwrite the data stored in Firestore.)
-function refreshStateFromStorage() {
-    todos = storage.get('todos', []) || [];
-
-    const theme = storage.get('theme', 'light');
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-
-    currentStatsPeriod = storage.get('currentStatsPeriod', 'today');
-
-    if (!timerInterval) {
-        timerState = storage.get('timerState', defaultTimerState()) || defaultTimerState();
-        document.getElementById('currentTask').value = timerState.currentTask || '';
-        resumeTimerIfRunning();
-        updateTimerVisuals();
-    }
-}
-
-// Initialize timer
-document.getElementById('currentTask').value = timerState.currentTask || '';
-resumeTimerIfRunning();
-updateTimerVisuals();
-
-// Timer Event Listeners
-document.getElementById('toggleTimerBtn').addEventListener('click', () => {
-    const task = document.getElementById('currentTask').value.trim();
-    if (!timerState.isBreak && !task && !timerState.isRunning && timerState.seconds === 0) {
-        showToast('Please enter what you are studying');
-        return;
-    }
-    
-    if (!timerState.isRunning) {
-        timerState.currentTask = task;
-        storage.set('timerState', timerState);
-        startTimer();
-    } else {
-        pauseTimer();
-    }
-});
-document.getElementById('endSessionBtn').addEventListener('click', () => endSession(true));
-document.getElementById('resetTimerBtn').addEventListener('click', resetTimer);
-document.getElementById('toggleBreakBtn').addEventListener('click', toggleBreakMode);
-
-// --- Daily Routine ---
-const defaultRoutine = [
+  const DEFAULT_ROUTINE = [
     { id: '1', time: '06:00 AM', activity: 'Wake up & Morning routine' },
     { id: '2', time: '07:00 AM', activity: 'Breakfast' },
     { id: '3', time: '08:00 AM', activity: 'Study Session 1' },
@@ -780,842 +109,1104 @@ const defaultRoutine = [
     { id: '10', time: '07:00 PM', activity: 'Dinner' },
     { id: '11', time: '08:00 PM', activity: 'Free time / Hobbies' },
     { id: '12', time: '10:00 PM', activity: 'Sleep preparation' }
-];
+  ];
+  const DEFAULT_SETTINGS = { accent: 'aurora', goalHours: 4, mode: 'stopwatch', focusMin: 25, breakMin: 5, volume: 0.5, chime: true, lite: false, tasksDone: 0 };
+  const defaultTimer = () => ({ seconds: 0, isRunning: false, isBreak: false, currentTask: '', startTime: null });
 
-let routine = [];
-let isEditingRoutine = false;
+  // ------------------------------------------------------------
+  // state
+  // ------------------------------------------------------------
+  const S = {
+    todos: [], sessions: [], routine: [], timer: defaultTimer(),
+    settings: Object.assign({}, DEFAULT_SETTINGS), theme: 'dark',
+    ui: { editingTask: null, routineEdit: false, newTaskId: null }
+  };
+  let currentPage = 'home';
+  let booted = false;
 
-const loadRoutine = () => {
-    let savedRoutine = storage.get('routine');
-    if (Array.isArray(savedRoutine) && savedRoutine.length > 0 && savedRoutine[0].hasOwnProperty('time') && savedRoutine[0].hasOwnProperty('activity')) {
-        routine = savedRoutine;
-    } else {
-        routine = JSON.parse(JSON.stringify(defaultRoutine)); 
+  const asArray = (v) => (Array.isArray(v) ? v : []);
+
+  function loadAll() {
+    S.todos = asArray(storage.get('todos', [])).filter((t) => t && t.text);
+    S.sessions = asArray(storage.get('timeSessions', []));
+    const r = storage.get('routine', null);
+    S.routine = Array.isArray(r) && r.length ? r : JSON.parse(JSON.stringify(DEFAULT_ROUTINE));
+    if (!T.interval) S.timer = Object.assign(defaultTimer(), storage.get('timerState', {}) || {});
+    S.settings = Object.assign({}, DEFAULT_SETTINGS, storage.get('settings', {}) || {});
+    if (!ACCENTS[S.settings.accent]) S.settings.accent = 'aurora';
+    S.theme = storage.get('theme', 'dark') === 'light' ? 'light' : 'dark';
+    pruneTodos();
+  }
+  const saveTodos = () => storage.set('todos', S.todos);
+  const saveSessions = () => storage.set('timeSessions', S.sessions);
+  const saveRoutine = () => storage.set('routine', S.routine);
+  const saveTimer = () => storage.set('timerState', S.timer);
+  const saveSettings = () => storage.set('settings', S.settings);
+
+  // completed tasks are kept for 30 days, then dropped to keep the cloud document small
+  function pruneTodos() {
+    const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    const before = S.todos.length;
+    S.todos = S.todos.filter((t) => !t.completed || !t.completedAt || new Date(t.completedAt).getTime() > cutoff);
+    if (S.todos.length !== before) saveTodos();
+  }
+
+  // ------------------------------------------------------------
+  // derived data: study per day, streaks, XP, levels
+  // ------------------------------------------------------------
+  function studyDaily() {
+    const m = new Map();
+    S.sessions.forEach((s) => {
+      if (s.type !== 'study') return;
+      const k = dayKey(new Date(s.date));
+      m.set(k, (m.get(k) || 0) + (s.duration || 0));
+    });
+    return m;
+  }
+  function streaks(daily) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    let cur = 0;
+    let atRisk = false;
+    if (!(daily.get(dayKey(d)) > 0)) {
+      d.setDate(d.getDate() - 1);
+      atRisk = daily.get(dayKey(d)) > 0;
     }
-};
+    while (daily.get(dayKey(d)) > 0) { cur++; d.setDate(d.getDate() - 1); }
 
-const renderRoutine = () => {
-    const schedule = document.getElementById('routineSchedule');
-    schedule.innerHTML = '';
-    
-    const parseTime = (timeStr) => {
-        if (typeof timeStr !== 'string') return 9999;
-        const match = timeStr.match(/(\d{1,2}):?(\d{2})\s*(AM|PM)?/i);
-        if (!match) return 9999;
-        let [_, h, m, p] = match;
-        let hours = parseInt(h);
-        if (p) {
-            p = p.toUpperCase();
-            if (p === 'PM' && hours !== 12) hours += 12;
-            if (p === 'AM' && hours === 12) hours = 0;
-        }
-        return hours * 60 + parseInt(m);
+    const keys = Array.from(daily.keys()).filter((k) => daily.get(k) > 0).sort();
+    let best = 0, run = 0, prev = null;
+    keys.forEach((k) => {
+      const dt = parseKey(k);
+      run = prev && Math.round((dt - prev) / 864e5) === 1 ? run + 1 : 1;
+      best = Math.max(best, run);
+      prev = dt;
+    });
+    return { current: cur, best: Math.max(best, cur), atRisk: atRisk, activeDays: keys.length };
+  }
+  function totalStudySec() {
+    let t = 0;
+    S.sessions.forEach((s) => { if (s.type === 'study') t += s.duration || 0; });
+    return t;
+  }
+  const xpTotal = () => Math.floor(totalStudySec() / 60) + 5 * (S.settings.tasksDone || 0);
+  function levelInfo(xp) {
+    const level = Math.floor(Math.sqrt(xp / 60)) + 1;
+    const base = 60 * Math.pow(level - 1, 2);
+    const next = 60 * Math.pow(level, 2);
+    return { level: level, name: LEVEL_NAMES[Math.min(level - 1, LEVEL_NAMES.length - 1)], xp: xp, base: base, next: next, pct: clamp((xp - base) / (next - base), 0, 1) };
+  }
+
+  // ------------------------------------------------------------
+  // bar chart markup (shared with insights.js)
+  // ------------------------------------------------------------
+  function barChart(items) {
+    const max = Math.max.apply(null, items.map((i) => i.value).concat([0]));
+    return items.map((it, idx) => {
+      const zero = !(it.value > 0);
+      const pct = max ? (it.value / max) * 100 : 0;
+      return '<div class="bar-col' + (it.hi ? ' hi' : '') + '" data-tip="' + esc(it.tip || '') + '" style="--i:' + idx + '">' +
+        '<div class="bar-track"><div class="bar' + (zero ? ' zero' : '') + '" style="height:' + (zero ? 0 : pct.toFixed(1)) + '%"></div></div>' +
+        '<span class="bar-label">' + esc(it.label || '') + '</span></div>';
+    }).join('');
+  }
+
+  // ------------------------------------------------------------
+  // 3D orbs
+  // ------------------------------------------------------------
+  const ORB = { home: null, focus: null, bg: null };
+
+  function initOrbs() {
+    const ok = window.SFOrb && window.SFOrb.supported;
+    if (ok) {
+      ORB.home = window.SFOrb.orb($('#homeOrb'));
+      ORB.focus = window.SFOrb.orb($('#focusOrb'));
+      ORB.bg = window.SFOrb.backdrop($('#bgCanvas'));
+      document.addEventListener('pointermove', (e) => {
+        window.SFOrb.setMouse((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
+      }, { passive: true });
+    }
+    $('#homeOrbWrap').dataset.gl = ORB.home ? '1' : '0';
+    $('#focusOrbWrap').dataset.gl = ORB.focus ? '1' : '0';
+  }
+  const orbState = () => (S.timer.isBreak ? 'break' : S.timer.isRunning ? 'focus' : 'idle');
+
+  function applyOrbLook() {
+    const acc = ACCENTS[S.settings.accent] || ACCENTS.aurora;
+    const st = orbState();
+    const pal = st === 'focus' ? STATE_PAL.focus : st === 'break' ? STATE_PAL.break : acc.idle;
+    const energy = st === 'focus' ? 1 : st === 'break' ? 0.3 : 0.38;
+    [ORB.home, ORB.focus].forEach((o) => {
+      if (!o) return;
+      o.setPalette(pal[0], pal[1], pal[2]);
+      o.setEnergy(energy);
+      o.setLight(S.theme === 'light');
+      o.setLite(S.settings.lite);
+    });
+    if (ORB.bg) {
+      ORB.bg.setPalette(acc.bg[0], acc.bg[1], acc.bg[1]);
+      ORB.bg.setEnabled(!S.settings.lite && S.theme !== 'light');
+    }
+    $('#homeOrbWrap').dataset.state = st;
+    $('#focusOrbWrap').dataset.state = st;
+  }
+
+  function applyLook() {
+    const root = document.documentElement;
+    root.dataset.theme = S.theme;
+    root.dataset.accent = S.settings.accent;
+    root.classList.toggle('lite', !!S.settings.lite);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = S.theme === 'light' ? '#f3efff' : '#0e0a1a';
+    $('#themeIcon').innerHTML = '<use href="#i-' + (S.theme === 'light' ? 'moon' : 'sun') + '"/>';
+    $('#themeBtn').setAttribute('aria-label', S.theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
+    applyOrbLook();
+  }
+  function toggleTheme() {
+    S.theme = S.theme === 'light' ? 'dark' : 'light';
+    storage.set('theme', S.theme);
+    applyLook();
+  }
+
+  // ------------------------------------------------------------
+  // auth / header
+  // ------------------------------------------------------------
+  function getUser() {
+    try { return window.firebase && firebase.auth().currentUser; } catch (e) { return null; }
+  }
+  function getName() {
+    const u = getUser();
+    const stored = storage.get('username', '');
+    if (stored && typeof stored === 'string') return stored;
+    if (u) return u.displayName || (u.email || '').split('@')[0] || 'friend';
+    return 'friend';
+  }
+  function renderAuth() {
+    const u = getUser();
+    $('#guestAuth').hidden = !!u;
+    $('#userMenu').hidden = !u;
+    const dot = $('#syncDot');
+    dot.classList.remove('ok', 'err');
+    if (u) {
+      const name = getName();
+      $('#avatarBtn').textContent = (name.trim().charAt(0) || 'S').toUpperCase();
+      $('#menuName').textContent = name;
+      $('#menuEmail').textContent = u.email || '';
+      if (window.__cloudSyncError) { dot.classList.add('err'); dot.title = 'Cloud sync problem: saved on this device only'; }
+      else { dot.classList.add('ok'); dot.title = 'Synced to your account'; }
+    } else {
+      dot.title = 'Guest mode: saved on this device. Sign up to sync.';
+    }
+  }
+  function renderChrome() {
+    const li = levelInfo(xpTotal());
+    $('#levelChipText').textContent = 'Lv ' + li.level;
+    $('#levelChipBar').style.width = Math.round(li.pct * 100) + '%';
+    $('#username').textContent = getName();
+    renderAuth();
+  }
+  async function logout() {
+    try {
+      if (getUser()) {
+        await Promise.race([firebase.firestore().waitForPendingWrites(), new Promise((r) => setTimeout(r, 3000))]);
+        await firebase.auth().signOut();
+      }
+    } catch (e) { console.warn('logout', e); }
+    try { localStorage.clear(); } catch (e) { /* ignore */ }
+    location.hash = '';
+    location.reload();
+  }
+
+  // ------------------------------------------------------------
+  // routing
+  // ------------------------------------------------------------
+  const PAGES = ['home', 'focus', 'tasks', 'planner', 'insights'];
+
+  function navigate(page) {
+    if (location.hash.slice(1) === page) show(page);
+    else location.hash = page;
+  }
+  function show(page) {
+    if (PAGES.indexOf(page) === -1) page = 'home';
+    currentPage = page;
+    $$('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + page));
+    $$('.dock a').forEach((a) => {
+      if (a.dataset.go === page) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+    document.body.dataset.page = page;
+    if (page !== 'focus') exitZen();
+    closePops();
+    renderPage(page);
+    window.scrollTo(0, 0);
+  }
+  function renderPage(page) {
+    if (page === 'home') renderHome();
+    else if (page === 'focus') renderFocus();
+    else if (page === 'tasks') renderTasks();
+    else if (page === 'planner') renderPlanner();
+    else if (page === 'insights' && window.SF && window.SF.insights) window.SF.insights.render();
+    if (window.SFX) window.SFX.tilt(document);
+  }
+  function refreshAll() {
+    renderChrome();
+    renderPage(currentPage);
+  }
+
+  // ------------------------------------------------------------
+  // HOME
+  // ------------------------------------------------------------
+  function parseTime(str) {
+    const m = String(str || '').match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)?/i);
+    if (!m) return null;
+    let h = +m[1];
+    const mi = +(m[2] || 0);
+    const ap = m[3] && m[3].toUpperCase();
+    if (ap === 'PM' && h !== 12) h += 12;
+    if (ap === 'AM' && h === 12) h = 0;
+    if (h > 23 || mi > 59) return null;
+    return h * 60 + mi;
+  }
+  const to24 = (min) => pad2(Math.floor(min / 60)) + ':' + pad2(min % 60);
+  function to12(min) {
+    const h = Math.floor(min / 60);
+    return pad2(h % 12 || 12) + ':' + pad2(min % 60) + ' ' + (h >= 12 ? 'PM' : 'AM');
+  }
+  function sortedRoutine() {
+    return S.routine
+      .map((r) => ({ id: r.id, activity: r.activity, min: parseTime(r.time) }))
+      .filter((r) => r.min !== null && r.activity)
+      .sort((a, b) => a.min - b.min);
+  }
+  function nowInfo() {
+    const list = sortedRoutine();
+    const d = new Date();
+    const nowMin = d.getHours() * 60 + d.getMinutes();
+    let idx = -1;
+    list.forEach((r, i) => { if (r.min <= nowMin) idx = i; });
+    const cur = list[idx] || null;
+    const next = list[idx + 1] || null;
+    const end = next ? next.min : 24 * 60;
+    return { list: list, idx: idx, cur: cur, next: next, nowMin: nowMin, left: cur ? end - nowMin : 0, pct: cur ? clamp((nowMin - cur.min) / (end - cur.min), 0, 1) : 0 };
+  }
+  const fmtLeft = (min) => (min >= 60 ? Math.floor(min / 60) + 'h ' + (min % 60) + 'm' : min + ' min');
+
+  function nowHTML(big) {
+    const n = nowInfo();
+    if (!n.list.length) return '<p class="mini-empty">No routine yet. <a href="#planner" data-go="planner">Build one</a>.</p>';
+    if (!n.cur) {
+      return '<div class="now-name">Before your day starts</div><div class="now-meta">First up at ' + to12(n.list[0].min) + ': ' + esc(n.list[0].activity) + '</div>';
+    }
+    let h = '<div class="now-name">' + esc(n.cur.activity) + '</div>' +
+      '<div class="now-meta">' + fmtLeft(n.left) + ' left</div>' +
+      '<div class="slot-progress"><i style="width:' + Math.round(n.pct * 100) + '%"></i></div>';
+    if (n.next) h += '<div class="now-next">Next at ' + to12(n.next.min) + ': <strong>' + esc(n.next.activity) + '</strong></div>';
+    else if (big) h += '<div class="now-next">That is the last block of the day.</div>';
+    return h;
+  }
+
+  function renderHomeNow() {
+    $('#homeNow').innerHTML = nowHTML(false);
+  }
+
+  function renderHome() {
+    const now = new Date();
+    const hr = now.getHours();
+    const greet = hr < 5 ? 'Still up' : hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : hr < 22 ? 'Good evening' : 'Late session';
+    $('#greetWord').textContent = greet;
+    $('#username').textContent = getName();
+    $('#heroDate').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+
+    const daily = studyDaily();
+    const st = streaks(daily);
+    const todaySec = (daily.get(dayKey(now)) || 0) + (S.timer.isRunning && !S.timer.isBreak ? elapsedSec() : 0);
+    const goalSec = S.settings.goalHours * 3600;
+
+    // hero copy
+    let sub;
+    if (S.timer.isRunning) sub = 'Your session is running. Jump back in.';
+    else if (st.atRisk && st.current > 0) sub = 'Your ' + st.current + '-day streak ends tonight. One session keeps it alive.';
+    else if (todaySec >= goalSec) sub = 'Daily goal reached. Anything more is a bonus.';
+    else if (todaySec > 0) sub = fmtShort(todaySec) + ' done today, ' + fmtShort(goalSec - todaySec) + ' to go for your goal.';
+    else if (!S.sessions.length) sub = 'Pick a subject and start your first session. Ten minutes counts.';
+    else sub = 'A fresh day. Pick a subject and start a session.';
+    $('#heroSub').textContent = sub;
+
+    // goal ring in the orb
+    $('#homeGoalNum').textContent = fmtShort(todaySec);
+    $('#homeGoalCap').textContent = 'of ' + S.settings.goalHours + 'h goal';
+    $('#homeRing').style.strokeDashoffset = CIRC * (1 - clamp(todaySec / goalSec, 0, 1));
+
+    // level
+    const li = levelInfo(xpTotal());
+    $('#levelNum').textContent = li.level;
+    $('#levelName').textContent = li.name;
+    $('#levelBar').style.width = Math.round(li.pct * 100) + '%';
+    $('#levelNote').textContent = (li.next - li.xp) + ' XP to level ' + (li.level + 1) + '. Every minute is 1 XP, every finished task is 5.';
+
+    // streak
+    $('#streakNum').textContent = st.current;
+    let dots = '';
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      const on = (daily.get(dayKey(d)) || 0) > 0;
+      dots += '<div class="wd' + (on ? ' on' : '') + (i === 0 ? ' today' : '') + '"><i></i><span>' + d.toLocaleDateString(undefined, { weekday: 'narrow' }) + '</span></div>';
+    }
+    $('#weekDots').innerHTML = dots;
+    $('#streakNote').textContent = st.current === 0 ? 'Study today to start a streak.' : st.atRisk ? 'Study today to keep it going. Best: ' + st.best + ' days.' : 'Best so far: ' + st.best + ' days.';
+
+    // last 7 days
+    const items = [];
+    let weekSec = 0;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      const sec = daily.get(dayKey(d)) || 0;
+      weekSec += sec;
+      items.push({ value: sec, label: d.toLocaleDateString(undefined, { weekday: 'short' }), tip: d.toLocaleDateString(undefined, { weekday: 'long' }) + ': ' + fmtShort(sec), hi: i === 0 });
+    }
+    $('#weekTotal').textContent = fmtShort(weekSec);
+    $('#weekBars').innerHTML = barChart(items);
+
+    // up next
+    const active = S.todos.filter((t) => !t.completed).slice(0, 4);
+    $('#homeTasks').innerHTML = active.length
+      ? active.map((t) => '<li class="mini-task"><button class="tick" type="button" data-act="done" data-id="' + esc(t.id) + '" aria-label="Mark done">' + ico('check') + '</button><span>' + esc(t.text) + '</span></li>').join('')
+      : '<li class="mini-empty">Nothing queued. <a href="#tasks" data-go="tasks">Add a task</a>.</li>';
+
+    renderHomeNow();
+    updateTimerUI();
+  }
+
+  // ------------------------------------------------------------
+  // TIMER
+  // ------------------------------------------------------------
+  const T = { interval: null };
+  const isPomo = () => S.settings.mode === 'pomodoro';
+  const targetSec = () => (isPomo() ? (S.timer.isBreak ? S.settings.breakMin : S.settings.focusMin) * 60 : 0);
+  function elapsedSec() {
+    const ts = S.timer;
+    return ts.isRunning && ts.startTime ? Math.max(0, Math.floor((Date.now() - ts.startTime) / 1000)) : ts.seconds || 0;
+  }
+
+  function startTimer(resume) {
+    if (T.interval) return;
+    const ts = S.timer;
+    if (!(resume && ts.startTime)) ts.startTime = Date.now() - (ts.seconds || 0) * 1000;
+    ts.isRunning = true;
+    saveTimer();
+    T.interval = setInterval(tick, 500);
+    applyOrbLook();
+    updateTimerUI();
+  }
+  function pauseTimer() {
+    const ts = S.timer;
+    if (T.interval) { clearInterval(T.interval); T.interval = null; }
+    if (ts.isRunning && ts.startTime) ts.seconds = Math.floor((Date.now() - ts.startTime) / 1000);
+    ts.isRunning = false;
+    saveTimer();
+    applyOrbLook();
+  }
+  function tick() {
+    const tg = targetSec();
+    if (tg && elapsedSec() >= tg) { finishPomodoro(); return; }
+    updateTimerUI();
+  }
+
+  function logSession(sec) {
+    if (sec <= 0) return null;
+    const before = levelInfo(xpTotal());
+    S.sessions.push({
+      date: new Date().toISOString(),
+      duration: sec,
+      type: S.timer.isBreak ? 'break' : 'study',
+      task: S.timer.isBreak ? null : (S.timer.currentTask || null)
+    });
+    saveSessions();
+    return { before: before, after: levelInfo(xpTotal()), sec: sec, wasBreak: S.timer.isBreak };
+  }
+  function resetTimerValues() {
+    S.timer.seconds = 0;
+    S.timer.startTime = null;
+    saveTimer();
+  }
+  function celebrate(r, big, extra) {
+    if (!r || r.wasBreak) return;
+    const xp = Math.floor(r.sec / 60);
+    if (r.after.level > r.before.level) {
+      showToast('Level up! You are now level ' + r.after.level + ', ' + r.after.name + '.' + (extra || ''), 4800);
+      if (window.SFX) window.SFX.Confetti.burst(window.innerWidth / 2, window.innerHeight * 0.4, 160, { spread: 22, up: 18 });
+    } else {
+      showToast('Session saved: ' + fmtShort(r.sec) + (xp ? ' (+' + xp + ' XP).' : '.') + (extra || ''), 4200);
+      if (big && window.SFX) window.SFX.Confetti.burst(window.innerWidth / 2, window.innerHeight * 0.4, 110);
+    }
+    if (window.SF && window.SF.badges) window.SF.badges.checkNew();
+  }
+
+  function finishPomodoro() {
+    const tg = targetSec();
+    pauseTimer();
+    const wasBreak = S.timer.isBreak;
+    const r = logSession(tg);
+    resetTimerValues();
+    S.timer.isBreak = !wasBreak;
+    saveTimer();
+    if (S.settings.chime && window.SFX) window.SFX.Sound.chime();
+    if (wasBreak) showToast('Break over. Ready for another round?', 4200);
+    else celebrate(r, true, ' Break time when you are ready.');
+    refreshAll();
+  }
+
+  function endSession() {
+    const sec = elapsedSec();
+    pauseTimer();
+    let r = null;
+    if (sec >= 1) r = logSession(sec);
+    resetTimerValues();
+    if (r) {
+      if (S.settings.chime && !r.wasBreak && sec >= 60 && window.SFX) window.SFX.Sound.chime();
+      if (r.wasBreak) showToast('Break logged: ' + fmtShort(sec), 2800);
+      else celebrate(r, sec >= 600);
+    }
+    refreshAll();
+  }
+  function resetTimer() {
+    pauseTimer();
+    resetTimerValues();
+    updateTimerUI();
+    refreshAll();
+  }
+  function toggleTimer() {
+    if (T.interval) {
+      pauseTimer();
+      updateTimerUI();
+    } else {
+      if (!S.timer.isBreak) {
+        const input = $('#taskInput');
+        S.timer.currentTask = input.value.trim();
+      }
+      startTimer(false);
+    }
+    if (currentPage === 'focus') renderFocusSide();
+  }
+  function toggleBreak() {
+    const sec = elapsedSec();
+    pauseTimer();
+    if (sec >= 1) logSession(sec);
+    resetTimerValues();
+    S.timer.isBreak = !S.timer.isBreak;
+    saveTimer();
+    refreshAll();
+  }
+  function focusOn(text) {
+    text = (text || '').trim();
+    if (elapsedSec() > 0 && !T.interval) {
+      navigate('focus');
+      showToast('You have a paused session. Resume it or end it first.', 3600);
+      return;
+    }
+    if (T.interval) { navigate('focus'); return; }
+    if (S.timer.isBreak) { S.timer.isBreak = false; }
+    S.timer.currentTask = text;
+    saveTimer();
+    navigate('focus');
+    setTimeout(() => { $('#taskInput').value = text; startTimer(false); renderFocusSide(); }, 60);
+  }
+
+  // ---- timer UI ----
+  let lastDigits = '';
+  function setDigits(sec) {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const txt = h > 0 ? h + ':' + pad2(m) + ':' + pad2(s) : pad2(m) + ':' + pad2(s);
+    if (txt !== lastDigits) {
+      lastDigits = txt;
+      const el = $('#timerDigits');
+      el.classList.toggle('long', h > 0);
+      el.innerHTML = txt.split('').map((ch) => (ch === ':' ? '<span class="c">:</span>' : '<span class="d">' + ch + '</span>')).join('');
+    }
+    return txt;
+  }
+  function updateTimerUI() {
+    const ts = S.timer;
+    const e = elapsedSec();
+    const tg = targetSec();
+    const running = !!ts.isRunning;
+    const shown = tg ? Math.max(0, tg - e) : e;
+    const txt = setDigits(shown);
+
+    const p = tg ? clamp(e / tg, 0, 1) : (e % 3600) / 3600;
+    $('#ringProg').style.strokeDashoffset = CIRC * (1 - p);
+
+    let sub;
+    if (running) sub = ts.isBreak ? 'On a break' : 'Focusing on ' + (ts.currentTask || 'your work');
+    else if (e > 0) sub = 'Paused';
+    else sub = ts.isBreak ? 'Break is ready' : 'Ready when you are';
+    $('#timerSub').textContent = sub;
+
+    const btn = $('#toggleBtn');
+    btn.classList.toggle('running', running && !ts.isBreak);
+    btn.classList.toggle('onbreak', running && ts.isBreak);
+    btn.setAttribute('aria-label', running ? 'Pause timer' : e > 0 ? 'Resume timer' : 'Start timer');
+    $('#toggleIcon').innerHTML = '<use href="#i-' + (running ? 'pause' : 'play') + '"/>';
+    btn.classList.toggle('is-playing', running);
+    $('#endBtn').disabled = e < 1;
+    $('#resetBtn').disabled = e < 1 && !running;
+    $('#breakBtnText').textContent = ts.isBreak ? 'Back to focus' : 'Take a break instead';
+    $('#taskInput').disabled = running;
+
+    document.title = running ? txt + ' | StudyFlow' : 'StudyFlow';
+    orbStateSync();
+  }
+  let lastOrbState = '';
+  function orbStateSync() {
+    const st = orbState();
+    if (st !== lastOrbState) { lastOrbState = st; applyOrbLook(); }
+  }
+
+  // ---- FOCUS page ----
+  function renderFocus() {
+    $('#taskInput').value = S.timer.isBreak ? $('#taskInput').value : (S.timer.currentTask || $('#taskInput').value || '');
+    $$('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === S.settings.mode));
+    $('#pomoPresets').hidden = !isPomo();
+    $$('#pomoPresets .chip-btn').forEach((c) => c.classList.toggle('on', +c.dataset.f === S.settings.focusMin && +c.dataset.b === S.settings.breakMin));
+    $$('#soundGrid button').forEach((b) => b.classList.toggle('on', b.dataset.sound === (window.SFX ? window.SFX.Sound.kind : 'off')));
+    $('#volume').value = S.settings.volume;
+    renderFocusSide();
+    updateTimerUI();
+  }
+  function renderFocusSide() {
+    // recent subjects
+    const seen = [];
+    for (let i = S.sessions.length - 1; i >= 0 && seen.length < 6; i--) {
+      const s = S.sessions[i];
+      if (s.type === 'study' && s.task && seen.indexOf(s.task) === -1) seen.push(s.task);
+    }
+    $('#subjectChips').innerHTML = seen.map((s) => '<button type="button" class="chip chip-btn" data-subject="' + esc(s) + '">' + esc(s) + '</button>').join('');
+    $$('#subjectChips button').forEach((b) => { b.disabled = !!S.timer.isRunning; });
+
+    // tasks to focus on
+    const active = S.todos.filter((t) => !t.completed).slice(0, 6);
+    $('#focusTaskPicks').innerHTML = active.length
+      ? active.map((t) => '<li><button type="button" class="pick" data-pick="' + esc(t.text) + '">' + ico('target') + '<span>' + esc(t.text) + '</span></button></li>').join('')
+      : '<li class="pick-empty">Add tasks and they show up here.</li>';
+
+    // today summary
+    const now = new Date();
+    const key = dayKey(now);
+    let study = 0, brk = 0, count = 0;
+    S.sessions.forEach((s) => {
+      if (dayKey(new Date(s.date)) !== key) return;
+      if (s.type === 'study') { study += s.duration || 0; count++; } else brk += s.duration || 0;
+    });
+    const goal = S.settings.goalHours * 3600;
+    $('#todaySummary').innerHTML =
+      '<div class="meter"><i style="width:' + Math.round(clamp(study / goal, 0, 1) * 100) + '%"></i></div>' +
+      '<div class="summary-row"><span>Studied</span><strong>' + fmtShort(study) + '</strong></div>' +
+      '<div class="summary-row"><span>Breaks</span><strong>' + fmtShort(brk) + '</strong></div>' +
+      '<div class="summary-row"><span>Sessions</span><strong>' + count + '</strong></div>';
+  }
+
+  // ------------------------------------------------------------
+  // TASKS
+  // ------------------------------------------------------------
+  function addTask(text) {
+    text = (text || '').trim();
+    if (!text) return false;
+    const t = { id: newId(), text: text, completed: false, createdAt: new Date().toISOString(), completedAt: null };
+    S.todos.push(t);
+    S.ui.newTaskId = t.id;
+    saveTodos();
+    return true;
+  }
+  function completeTask(id, x, y) {
+    const t = S.todos.find((q) => q.id === id);
+    if (!t) return;
+    t.completed = !t.completed;
+    t.completedAt = t.completed ? new Date().toISOString() : null;
+    S.settings.tasksDone = Math.max(0, (S.settings.tasksDone || 0) + (t.completed ? 1 : -1));
+    saveTodos();
+    saveSettings();
+    if (t.completed) {
+      showToast('Task done (+5 XP)', 2200);
+      if (window.SFX) window.SFX.Confetti.burst(x || window.innerWidth / 2, y || window.innerHeight / 2, 46, { spread: 9, up: 9 });
+      if (window.SF && window.SF.badges) window.SF.badges.checkNew();
+    }
+    refreshAll();
+  }
+  function deleteTask(id) {
+    S.todos = S.todos.filter((t) => t.id !== id);
+    saveTodos();
+    refreshAll();
+  }
+
+  function taskHTML(t) {
+    const isNew = S.ui.newTaskId === t.id;
+    if (S.ui.editingTask === t.id) {
+      return '<li class="task"><input class="input task-edit-input" data-edit="' + esc(t.id) + '" value="' + esc(t.text) + '" maxlength="120" aria-label="Edit task"></li>';
+    }
+    if (t.completed) {
+      return '<li class="task done"><button class="tick on" type="button" data-act="done" data-id="' + esc(t.id) + '" aria-label="Mark as not done">' + ico('check') + '</button>' +
+        '<span class="task-text">' + esc(t.text) + '</span><span class="task-when">' + esc(timeAgo(t.completedAt)) + '</span>' +
+        '<div class="task-actions"><button class="mini-btn danger" type="button" data-act="delete" data-id="' + esc(t.id) + '" aria-label="Delete task">' + ico('trash') + '</button></div></li>';
+    }
+    return '<li class="task' + (isNew ? ' is-new' : '') + '"><button class="tick" type="button" data-act="done" data-id="' + esc(t.id) + '" aria-label="Mark done">' + ico('check') + '</button>' +
+      '<span class="task-text">' + esc(t.text) + '</span>' +
+      '<div class="task-actions">' +
+      '<button class="mini-btn" type="button" data-act="focus" data-id="' + esc(t.id) + '" aria-label="Focus on this task" title="Focus on this">' + ico('target') + '</button>' +
+      '<button class="mini-btn" type="button" data-act="edit" data-id="' + esc(t.id) + '" aria-label="Edit task">' + ico('pencil') + '</button>' +
+      '<button class="mini-btn danger" type="button" data-act="delete" data-id="' + esc(t.id) + '" aria-label="Delete task">' + ico('trash') + '</button></div></li>';
+  }
+
+  function renderTasks() {
+    const active = S.todos.filter((t) => !t.completed);
+    const done = S.todos.filter((t) => t.completed).sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+    $('#activeCount').textContent = active.length;
+    $('#doneCount').textContent = done.length;
+    $('#activeTodos').innerHTML = active.map(taskHTML).join('');
+    $('#doneTodos').innerHTML = done.map(taskHTML).join('');
+    $('#activeEmpty').hidden = active.length > 0;
+    $('#doneEmpty').hidden = done.length > 0;
+    $('#clearDone').hidden = done.length === 0;
+
+    const total = active.length + done.length;
+    $('#taskProgress').hidden = total === 0;
+    if (total) {
+      $('#taskProgressBar').style.width = Math.round((done.length / total) * 100) + '%';
+      $('#taskProgressText').textContent = done.length + ' of ' + total + ' done';
+    }
+    $('#taskSub').textContent = active.length ? active.length + (active.length === 1 ? ' thing' : ' things') + ' left. Start with the one you are avoiding.' : 'Write it down, then get it done.';
+    S.ui.newTaskId = null;
+
+    const ed = $('[data-edit]');
+    if (ed) { ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); }
+  }
+
+  // ------------------------------------------------------------
+  // PLANNER
+  // ------------------------------------------------------------
+  function renderPlanner() {
+    const editing = S.ui.routineEdit;
+    $('#routineEdit').querySelector('span').textContent = editing ? 'Save' : 'Edit';
+    $('#routineDefaults').hidden = !editing;
+    $('#addSlot').hidden = !editing;
+    const box = $('#routineList');
+
+    if (editing) {
+      box.innerHTML = S.routine.map((r) => {
+        const m = parseTime(r.time);
+        return '<div class="slot-edit" data-id="' + esc(r.id) + '">' +
+          '<input type="time" class="input time-in" value="' + (m === null ? '' : to24(m)) + '" aria-label="Start time">' +
+          '<span></span><div class="row"><input type="text" class="input act-in" value="' + esc(r.activity) + '" maxlength="50" placeholder="Activity" aria-label="Activity">' +
+          '<button class="mini-btn danger" type="button" data-act="del-slot" aria-label="Remove slot">' + ico('trash') + '</button></div></div>';
+      }).join('');
+    } else {
+      const n = nowInfo();
+      box.innerHTML = n.list.length ? n.list.map((r, i) => {
+        const cls = i === n.idx ? ' now' : i < n.idx ? ' past' : '';
+        return '<div class="slot' + cls + '"><div class="slot-time">' + to12(r.min) + '</div>' +
+          '<div class="slot-line"><span class="slot-dot"></span></div>' +
+          '<div class="slot-body"><div class="slot-card">' + esc(r.activity) + (i === n.idx ? '<span class="slot-now-tag">Now</span>' : '') +
+          (i === n.idx ? '<div class="slot-progress"><i style="width:' + Math.round(n.pct * 100) + '%"></i></div>' : '') + '</div></div></div>';
+      }).join('') : '<p class="empty">No routine yet. Press Edit to add your first block.</p>';
+    }
+    $('#nowPanel').innerHTML = '<h2 class="panel-title">Right now</h2>' + nowHTML(true);
+  }
+  function commitRoutine() {
+    S.routine = S.routine
+      .filter((r) => r.activity && r.activity.trim() && parseTime(r.time) !== null)
+      .map((r) => ({ id: r.id, time: to12(parseTime(r.time)), activity: r.activity.trim() }))
+      .sort((a, b) => parseTime(a.time) - parseTime(b.time));
+    saveRoutine();
+  }
+
+  // ------------------------------------------------------------
+  // ZEN, POPOVERS
+  // ------------------------------------------------------------
+  function enterZen() {
+    document.body.classList.add('zen');
+    $('#zenExit').hidden = false;
+    navigate('focus');
+  }
+  function exitZen() {
+    document.body.classList.remove('zen');
+    $('#zenExit').hidden = true;
+  }
+  function closePops() {
+    $('#settingsPop').hidden = true;
+    $('#settingsBtn').setAttribute('aria-expanded', 'false');
+    $('#userDropdown').hidden = true;
+    $('#avatarBtn').setAttribute('aria-expanded', 'false');
+  }
+  function openSettings() {
+    const pop = $('#settingsPop');
+    const willOpen = pop.hidden;
+    closePops();
+    if (!willOpen) return;
+    $$('#accentSwatches button').forEach((b) => b.classList.toggle('on', b.dataset.accent === S.settings.accent));
+    $('#goalInput').value = S.settings.goalHours;
+    $('#focusMin').value = S.settings.focusMin;
+    $('#breakMin').value = S.settings.breakMin;
+    $('#chimeToggle').checked = !!S.settings.chime;
+    $('#liteToggle').checked = !!S.settings.lite;
+    pop.hidden = false;
+    $('#settingsBtn').setAttribute('aria-expanded', 'true');
+  }
+
+  // ------------------------------------------------------------
+  // COMMAND PALETTE
+  // ------------------------------------------------------------
+  let palItems = [];
+  let palIdx = 0;
+  function buildCommands(q) {
+    const S_ = window.SFX ? window.SFX.Sound : null;
+    const list = [
+      { label: 'Go to Home', icon: 'home', run: () => navigate('home') },
+      { label: 'Go to Focus timer', icon: 'focus', run: () => navigate('focus') },
+      { label: 'Go to Tasks', icon: 'tasks', run: () => navigate('tasks') },
+      { label: 'Go to Daily routine', icon: 'planner', run: () => navigate('planner') },
+      { label: 'Go to Insights', icon: 'insights', run: () => navigate('insights') },
+      { label: S.timer.isRunning ? 'Pause timer' : 'Start timer', icon: S.timer.isRunning ? 'pause' : 'play', hint: 'Space', run: () => { navigate('focus'); setTimeout(toggleTimer, 60); } },
+      { label: 'Zen mode', icon: 'expand', hint: 'F', run: enterZen },
+      { label: S.theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme', icon: S.theme === 'light' ? 'moon' : 'sun', run: toggleTheme },
+      { label: 'Open settings', icon: 'sliders', run: () => setTimeout(openSettings, 30) },
+      { label: 'Ambience: rain', icon: 'rain', run: () => S_ && S_.set('rain') },
+      { label: 'Ambience: ocean', icon: 'waves', run: () => S_ && S_.set('ocean') },
+      { label: 'Ambience: deep focus', icon: 'deep', run: () => S_ && S_.set('deep') },
+      { label: 'Ambience: off', icon: 'mute', run: () => S_ && S_.set('off') }
+    ];
+    if (getUser()) list.push({ label: 'Log out', icon: 'logout', run: logout });
+    else list.push({ label: 'Log in or sign up', icon: 'logout', run: () => { location.href = 'loginpage.html'; } });
+
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    let out = list.filter((c) => words.every((w) => c.label.toLowerCase().indexOf(w) !== -1));
+    const raw = q.trim();
+    if (raw) {
+      out = out.concat([
+        { label: 'Add task: ' + raw, icon: 'plus', run: () => { addTask(raw); showToast('Task added', 1800); navigate('tasks'); refreshAll(); } },
+        { label: 'Focus on: ' + raw, icon: 'target', run: () => focusOn(raw) }
+      ]);
+    }
+    return out;
+  }
+  function renderPalette() {
+    $('#paletteList').innerHTML = palItems.map((c, i) =>
+      '<li role="option" data-i="' + i + '" aria-selected="' + (i === palIdx) + '">' + ico(c.icon) + '<span>' + esc(c.label) + '</span>' + (c.hint ? '<em>' + esc(c.hint) + '</em>' : '') + '</li>').join('');
+    const sel = $('#paletteList li[aria-selected="true"]');
+    if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest' });
+  }
+  function openPalette() {
+    closePops();
+    $('#palette').hidden = false;
+    $('#paletteInput').value = '';
+    palItems = buildCommands('');
+    palIdx = 0;
+    renderPalette();
+    $('#paletteInput').focus();
+  }
+  function closePalette() { $('#palette').hidden = true; }
+  function runPalette(i) {
+    const c = palItems[i];
+    if (!c) return;
+    closePalette();
+    c.run();
+  }
+
+  // ------------------------------------------------------------
+  // EVENT WIRING
+  // ------------------------------------------------------------
+  function wire() {
+    // navigation: anything with data-go
+    document.addEventListener('click', (e) => {
+      const go = e.target.closest('[data-go]');
+      if (go) { e.preventDefault(); navigate(go.dataset.go); }
+    });
+    window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+
+    // header
+    $('#cmdBtn').addEventListener('click', openPalette);
+    $('#themeBtn').addEventListener('click', toggleTheme);
+    $('#settingsBtn').addEventListener('click', (e) => { e.stopPropagation(); openSettings(); });
+    $('#avatarBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dd = $('#userDropdown');
+      const open = dd.hidden;
+      closePops();
+      dd.hidden = !open;
+      $('#avatarBtn').setAttribute('aria-expanded', String(open));
+    });
+    $('#logoutBtn').addEventListener('click', logout);
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#settingsPop') && !e.target.closest('#userDropdown')) closePops();
+    });
+
+    // settings
+    $('#accentSwatches').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-accent]');
+      if (!b) return;
+      S.settings.accent = b.dataset.accent;
+      saveSettings();
+      $$('#accentSwatches button').forEach((x) => x.classList.toggle('on', x === b));
+      applyLook();
+      if (currentPage === 'insights') renderPage('insights');
+    });
+    const numSetting = (sel, key, min, max) => $(sel).addEventListener('change', (e) => {
+      const v = parseFloat(e.target.value);
+      S.settings[key] = clamp(isNaN(v) ? DEFAULT_SETTINGS[key] : v, min, max);
+      e.target.value = S.settings[key];
+      saveSettings();
+      refreshAll();
+    });
+    numSetting('#goalInput', 'goalHours', 0.5, 16);
+    numSetting('#focusMin', 'focusMin', 5, 180);
+    numSetting('#breakMin', 'breakMin', 1, 60);
+    $('#chimeToggle').addEventListener('change', (e) => { S.settings.chime = e.target.checked; saveSettings(); });
+    $('#liteToggle').addEventListener('change', (e) => { S.settings.lite = e.target.checked; saveSettings(); applyLook(); });
+
+    // home
+    $('#quickStart').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = $('#quickTask').value;
+      $('#quickTask').value = '';
+      focusOn(v);
+    });
+    $('#homeTasks').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act="done"]');
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      completeTask(b.dataset.id, r.left + r.width / 2, r.top + r.height / 2);
+    });
+
+    // focus
+    $('#toggleBtn').addEventListener('click', toggleTimer);
+    $('#resetBtn').addEventListener('click', resetTimer);
+    $('#endBtn').addEventListener('click', endSession);
+    $('#breakBtn').addEventListener('click', toggleBreak);
+    $('#zenBtn').addEventListener('click', enterZen);
+    $('#zenExit').addEventListener('click', exitZen);
+    $('#taskInput').addEventListener('change', (e) => { S.timer.currentTask = e.target.value.trim(); saveTimer(); });
+    $('#taskInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); toggleTimer(); } });
+    $('#modeSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-mode]');
+      if (!b || b.dataset.mode === S.settings.mode) return;
+      if (elapsedSec() > 0) { showToast('End or reset the current session to switch modes.', 3000); return; }
+      S.settings.mode = b.dataset.mode;
+      saveSettings();
+      renderFocus();
+    });
+    $('#pomoPresets').addEventListener('click', (e) => {
+      const b = e.target.closest('.chip-btn');
+      if (!b) return;
+      if (S.timer.isRunning) { showToast('Pause the timer before changing lengths.', 2600); return; }
+      S.settings.focusMin = +b.dataset.f;
+      S.settings.breakMin = +b.dataset.b;
+      saveSettings();
+      renderFocus();
+    });
+    $('#subjectChips').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-subject]');
+      if (!b) return;
+      $('#taskInput').value = b.dataset.subject;
+      S.timer.currentTask = b.dataset.subject;
+      saveTimer();
+    });
+    $('#focusTaskPicks').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pick]');
+      if (!b || S.timer.isRunning) return;
+      $('#taskInput').value = b.dataset.pick;
+      S.timer.currentTask = b.dataset.pick;
+      saveTimer();
+    });
+    $('#soundGrid').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-sound]');
+      if (!b || !window.SFX) return;
+      window.SFX.Sound.set(b.dataset.sound);
+      window.SFX.Sound.setVolume(S.settings.volume);
+      $$('#soundGrid button').forEach((x) => x.classList.toggle('on', x === b));
+    });
+    $('#volume').addEventListener('input', (e) => { if (window.SFX) window.SFX.Sound.setVolume(+e.target.value); });
+    $('#volume').addEventListener('change', (e) => { S.settings.volume = +e.target.value; saveSettings(); });
+
+    // tasks
+    $('#addTaskForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = $('#newTodo');
+      if (addTask(input.value)) { input.value = ''; renderTasks(); renderChrome(); }
+      input.focus();
+    });
+    const taskList = (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      const id = b.dataset.id;
+      if (b.dataset.act === 'done') { const r = b.getBoundingClientRect(); completeTask(id, r.left + r.width / 2, r.top + r.height / 2); }
+      else if (b.dataset.act === 'delete') deleteTask(id);
+      else if (b.dataset.act === 'edit') { S.ui.editingTask = id; renderTasks(); }
+      else if (b.dataset.act === 'focus') { const t = S.todos.find((q) => q.id === id); if (t) focusOn(t.text); }
     };
-    
-    routine.sort((a, b) => parseTime(a.time) - parseTime(b.time));
-
-    routine.forEach(item => {
-        const div = document.createElement('div');
-        div.className = `routine-item ${isEditingRoutine ? 'editing' : ''}`;
-        div.dataset.id = item.id;
-        
-        if (isEditingRoutine) {
-            div.innerHTML = `
-                <div class="routine-edit-group">
-                    <input type="text" class="input routine-time-input" value="${escapeHTML(item.time)}" placeholder="e.g. 08:00 AM">
-                    <input type="text" class="input routine-activity-input" value="${escapeHTML(item.activity)}" placeholder="Activity">
-                    <button class="delete-routine-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </button>
-                </div>`;
-        } else {
-            div.innerHTML = `
-                <div class="routine-time">${escapeHTML(item.time || 'N/A')}</div>
-                <div class="routine-activity">${escapeHTML(item.activity || 'No Activity')}</div>`;
-        }
-        schedule.appendChild(div);
+    $('#activeTodos').addEventListener('click', taskList);
+    $('#doneTodos').addEventListener('click', taskList);
+    $('#activeTodos').addEventListener('keydown', (e) => {
+      if (!e.target.matches('[data-edit]')) return;
+      if (e.key === 'Enter') e.target.blur();
+      if (e.key === 'Escape') { S.ui.editingTask = null; renderTasks(); }
     });
-};
-
-const addRoutineEventListeners = () => {
-    const schedule = document.getElementById('routineSchedule');
-    
-    schedule.addEventListener('input', (e) => {
-        if (!isEditingRoutine) return;
-        const target = e.target;
-        const parentItem = target.closest('.routine-item');
-        if (!parentItem) return;
-
-        const itemId = parentItem.dataset.id;
-        const itemToUpdate = routine.find(r => r.id === itemId);
-
-        if (itemToUpdate) {
-            if (target.classList.contains('routine-time-input')) {
-                itemToUpdate.time = target.value;
-            } else if (target.classList.contains('routine-activity-input')) {
-                itemToUpdate.activity = target.value;
-            }
-        }
+    $('#activeTodos').addEventListener('focusout', (e) => {
+      if (!e.target.matches('[data-edit]')) return;
+      const t = S.todos.find((q) => q.id === e.target.dataset.edit);
+      const v = e.target.value.trim();
+      S.ui.editingTask = null;
+      if (t && v && v !== t.text) { t.text = v; saveTodos(); }
+      renderTasks();
+    });
+    $('#clearDone').addEventListener('click', () => {
+      if (!confirm('Remove all completed tasks?')) return;
+      S.todos = S.todos.filter((t) => !t.completed);
+      saveTodos();
+      refreshAll();
     });
 
-    schedule.addEventListener('click', (e) => {
-        if (!isEditingRoutine) return;
-        const deleteBtn = e.target.closest('.delete-routine-btn');
-        if (deleteBtn) {
-            const parentItem = deleteBtn.closest('.routine-item');
-            const idToDelete = parentItem.dataset.id;
-            routine = routine.filter(r => r.id !== idToDelete);
-            renderRoutine();
-        }
+    // planner
+    $('#routineEdit').addEventListener('click', () => {
+      if (S.ui.routineEdit) commitRoutine();
+      S.ui.routineEdit = !S.ui.routineEdit;
+      renderPlanner();
     });
-};
-
-document.getElementById('editRoutineBtn').addEventListener('click', () => {
-    isEditingRoutine = !isEditingRoutine;
-    const btn = document.getElementById('editRoutineBtn');
-    const addSlotBtn = document.getElementById('addSlotBtn');
-    
-    btn.innerHTML = isEditingRoutine
-        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save`
-        : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit`;
-    
-    addSlotBtn.style.display = isEditingRoutine ? 'inline-flex' : 'none';
-
-    if (!isEditingRoutine) {
-        storage.set('routine', routine);
-        showToast('Routine saved!');
-    } else {
-        loadRoutine();
-    }
-    renderRoutine();
-});
-
-document.getElementById('addSlotBtn').addEventListener('click', () => {
-    if (!isEditingRoutine) return;
-    routine.push({ id: Date.now().toString(), time: '00:00', activity: 'Work' });
-    renderRoutine();
-});
-
-addRoutineEventListeners();
-
-
-// --- Statistics ---
-let currentStatsPeriod = storage.get('currentStatsPeriod', 'today');
-let selectedStatsDate = null; 
-
-const calculateStats = (period, dateOverride = null) => {
-    const sessions = storage.get('timeSessions', []);
-    let now = dateOverride ? toLocalDate(dateOverride) : new Date();
-    if(dateOverride) now.setHours(23, 59, 59, 999);
-
-    let cutoff;
-    
-    switch (period) {
-        case 'today':
-            cutoff = new Date(now);
-            cutoff.setHours(0, 0, 0, 0);
-            break;
-        case 'week':
-            cutoff = new Date(now);
-            cutoff.setDate(now.getDate() - now.getDay()); 
-            cutoff.setHours(0, 0, 0, 0);
-            break;
-        case 'month':
-            cutoff = new Date(now);
-            cutoff.setDate(1); 
-            cutoff.setHours(0, 0, 0, 0);
-            break;
-        case 'year':
-            cutoff = new Date(now);
-            cutoff.setMonth(0, 1);
-            cutoff.setHours(0, 0, 0, 0);
-            break;
-    }
-
-    const periodSessions = sessions.filter(s => {
-        const sessionDate = new Date(s.date);
-        return sessionDate >= cutoff && sessionDate <= now && s.type === 'study';
+    $('#addSlot').addEventListener('click', () => {
+      S.routine.push({ id: newId(), time: '09:00 AM', activity: '' });
+      renderPlanner();
+      const rows = $$('#routineList .act-in');
+      if (rows.length) rows[rows.length - 1].focus();
     });
-    
-    const total = periodSessions.reduce((acc, s) => acc + s.duration, 0);
-    const count = periodSessions.length;
-    const average = count > 0 ? total / count : 0; 
-    
-    return { total, sessions: count, average };
-};
-
-const renderCustomDateStats = (dateString) => {
-    const localDate = toLocalDate(dateString);
-    const dateStr = localDate.toDateString();
-    
-    document.getElementById('customDateTitle').textContent = `Stats for ${localDate.toLocaleDateString('default', { year: 'numeric', month: 'long', day: 'numeric' })}`;
-
-    const sessions = storage.get('timeSessions', []);
-    const todos = storage.get('todos', []);
-
-    // Calculate stats for the selected day
-    const daySessions = sessions.filter(s => new Date(s.date).toDateString() === dateStr && s.type === 'study');
-    const totalStudyTime = daySessions.reduce((acc, s) => acc + s.duration, 0);
-    const sessionCount = daySessions.length;
-
-    document.getElementById('customDateStatsGrid').innerHTML = `
-        <div class="stat-card">
-            <div class="stat-header"><span class="stat-label">Total Study Time</span><div class="stat-icon primary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
-            <div class="stat-value primary">${formatTimeShort(totalStudyTime)}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-header"><span class="stat-label">Sessions Completed</span><div class="stat-icon success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div></div>
-            <div class="stat-value success">${sessionCount}</div>
-        </div>
-    `;
-
-    // NEW: Calculate and display study tasks for the selected day
-    const studyTaskMap = daySessions.reduce((acc, s) => {
-        if (s.task) {
-            acc[s.task] = (acc[s.task] || 0) + s.duration;
-        }
-        return acc;
-    }, {});
-    const studyTasks = Object.entries(studyTaskMap).map(([task, duration]) => ({ task, duration }))
-        .sort((a, b) => b.duration - a.duration);
-
-    const studyList = document.getElementById('customDateStudySubjects');
-    const studyEmptyState = document.getElementById('customDateStudyEmptyState');
-
-    if (studyTasks.length > 0) {
-        // Re-using subject-item structure, but without edit/delete buttons for simplicity
-        studyList.innerHTML = studyTasks.map(t => `
-            <div class="subject-item custom-date-subject">
-                <div class="subject-item-header">
-                    <span class="subject-item-name">${escapeHTML(t.task || 'Untagged Session')}</span>
-                    <span class="subject-item-time">${formatTimeShort(t.duration)}</span>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: 100%; background: hsl(var(--primary));"></div>
-                </div>
-            </div>`).join('');
-        studyList.style.display = 'flex';
-        studyEmptyState.style.display = 'none';
-    } else {
-        studyList.innerHTML = '';
-        studyList.style.display = 'none';
-        studyEmptyState.style.display = 'flex';
-    }
-
-
-    // Filter and display tasks completed on that day
-    const completedTasksOnDay = todos.filter(t => {
-        return t.completed && t.completedAt && new Date(t.completedAt).toDateString() === dateStr;
+    $('#routineDefaults').addEventListener('click', () => {
+      if (!confirm('Replace your routine with the default one?')) return;
+      S.routine = JSON.parse(JSON.stringify(DEFAULT_ROUTINE));
+      saveRoutine();
+      S.ui.routineEdit = false;
+      renderPlanner();
+    });
+    $('#routineList').addEventListener('input', (e) => {
+      const row = e.target.closest('.slot-edit');
+      if (!row) return;
+      const r = S.routine.find((q) => q.id === row.dataset.id);
+      if (!r) return;
+      if (e.target.matches('.time-in')) { const m = parseTime(e.target.value); if (m !== null) r.time = to12(m); }
+      if (e.target.matches('.act-in')) r.activity = e.target.value;
+    });
+    $('#routineList').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act="del-slot"]');
+      if (!b) return;
+      const id = b.closest('.slot-edit').dataset.id;
+      S.routine = S.routine.filter((r) => r.id !== id);
+      renderPlanner();
     });
 
-    const tasksList = document.getElementById('customDateTasks');
-    const taskEmptyState = document.getElementById('customDateTaskEmptyState');
-
-    if (completedTasksOnDay.length > 0) {
-        tasksList.innerHTML = completedTasksOnDay.map(t => createTaskElement(t)).join('');
-        addEventListenersForTasks('#customDateTasks');
-        tasksList.style.display = 'flex';
-        taskEmptyState.style.display = 'none';
-    } else {
-        tasksList.innerHTML = '';
-        tasksList.style.display = 'none';
-        taskEmptyState.style.display = 'flex';
-    }
-};
-
-const updateStats = () => {
-    const defaultView = document.getElementById('stats-default-view');
-    const customDateView = document.getElementById('stats-custom-date-view');
-    const clearDateBtn = document.getElementById('clearDateBtn');
-
-    if (selectedStatsDate) {
-        // Show custom date view
-        defaultView.style.display = 'none';
-        customDateView.style.display = 'block';
-        clearDateBtn.style.display = 'inline-flex';
-        renderCustomDateStats(selectedStatsDate);
-    } else {
-        // Show default tabbed view
-        defaultView.style.display = 'block';
-        customDateView.style.display = 'none';
-        clearDateBtn.style.display = 'none';
-
-        const stats = calculateStats(currentStatsPeriod);
-    
-        document.getElementById('statsMainGrid').innerHTML = `
-            <div class="stat-card clickable" id="totalStudyTimeCard" data-period="${currentStatsPeriod}">
-                <div class="stat-header"><span class="stat-label">Total Study Time</span><div class="stat-icon primary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
-                <div class="stat-value primary">${formatTimeShort(stats.total)}</div>
-                <p class="stat-description">Total time in this period</p>
-                <p class="stat-hint">Click to view detailed breakdown</p>
-            </div>
-            <div class="stat-card">
-                <div class="stat-header"><span class="stat-label">Sessions Completed</span><div class="stat-icon success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div></div>
-                <div class="stat-value success">${stats.sessions}</div>
-                <p class="stat-description">Study sessions in this period</p>
-            </div>
-            <div class="stat-card">
-                <div class="stat-header"><span class="stat-label">Average Session</span><div class="stat-icon accent"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></div></div>
-                <div class="stat-value accent">${formatTimeShort(stats.average)}</div>
-                <p class="stat-description">Per session in this period</p>
-            </div>`;
-        
-        document.getElementById('totalStudyTimeCard').addEventListener('click', (e) => {
-            const period = e.currentTarget.dataset.period;
-            openChartModal(period, selectedStatsDate);
-        });
-
-        renderTimeBySubject();
-        renderRecentCompletedTasks();
-        renderProgressInsights();
-    }
-    updateStatsTabs();
-};
-
-const updateStatsTabs = () => {
-    const tabs = document.querySelectorAll('#statsTabList .tab');
-    const tabContainer = document.getElementById('statsTabList');
-    
-    if (selectedStatsDate) {
-        tabContainer.style.opacity = '0.5';
-        tabs.forEach(tab => {
-            tab.classList.remove('active');
-            tab.disabled = true;
-        });
-    } else {
-        tabContainer.style.opacity = '1';
-        tabs.forEach(tab => {
-            tab.disabled = false;
-            tab.classList.toggle('active', tab.dataset.tab === currentStatsPeriod)
-        });
-    }
-};
-
-const handleEditSubject = (subjectItemElement) => {
-    if (subjectItemElement.classList.contains('is-editing')) return;
-    subjectItemElement.classList.add('is-editing');
-
-    const nameSpan = subjectItemElement.querySelector('.subject-item-name');
-    const oldName = nameSpan.textContent;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = oldName;
-    input.className = 'input subject-edit-input';
-
-    const saveEdit = () => {
-        const newName = input.value.trim();
-        if (newName && newName !== oldName) {
-            let sessions = storage.get('timeSessions', []);
-            sessions.forEach(session => {
-                if (session.task === oldName) {
-                    session.task = newName;
-                }
-            });
-            storage.set('timeSessions', sessions);
-            showToast(`Subject renamed to "${newName}"`);
-        }
-        updateStats(); // Re-render the whole stats page
-    };
-
-    input.addEventListener('blur', saveEdit);
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveEdit();
-        if (e.key === 'Escape') updateStats();
+    // command palette
+    $('#paletteInput').addEventListener('input', (e) => { palItems = buildCommands(e.target.value); palIdx = 0; renderPalette(); });
+    $('#paletteInput').addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); palIdx = Math.min(palItems.length - 1, palIdx + 1); renderPalette(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); palIdx = Math.max(0, palIdx - 1); renderPalette(); }
+      else if (e.key === 'Enter') { e.preventDefault(); runPalette(palIdx); }
     });
+    $('#paletteList').addEventListener('click', (e) => { const li = e.target.closest('li[data-i]'); if (li) runPalette(+li.dataset.i); });
+    $('#palette').addEventListener('mousedown', (e) => { if (e.target === $('#palette')) closePalette(); });
 
-    // We no longer hide the time/actions temporarily, as the new CSS layout 
-    // accounts for their presence, and we rely on the full re-render on blur/enter/escape.
-    nameSpan.replaceWith(input);
-    input.focus();
-};
-
-
-const handleDeleteSubject = (subjectName) => {
-    if (confirm(`Are you sure you want to delete all study history for the subject "${subjectName}"? This action cannot be undone.`)) {
-        let sessions = storage.get('timeSessions', []);
-        const updatedSessions = sessions.filter(session => session.task !== subjectName);
-        storage.set('timeSessions', updatedSessions);
-        showToast(`All history for "${subjectName}" has been deleted.`);
-        updateStats();
-    }
-};
-
-const renderTimeBySubject = () => {
-    const sessions = storage.get('timeSessions', []);
-    const taskMap = sessions.filter(s => s.task && s.type === 'study').reduce((acc, s) => {
-        acc[s.task] = (acc[s.task] || 0) + s.duration;
-        return acc;
-    }, {});
-    
-    const tasks = Object.entries(taskMap).map(([task, duration]) => ({ task, duration }))
-        .sort((a, b) => b.duration - a.duration);
-    
-    const totalStudyTime = tasks.reduce((acc, t) => acc + t.duration, 0);
-    
-    const container = document.getElementById('timeBySubject');
-    if (tasks.length === 0) {
-        container.innerHTML = `<div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 64px; height: 64px; opacity: 0.1;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg><p>Start tracking with task names to see your subject breakdown!</p></div>`;
+    // keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#palette').hidden ? openPalette() : closePalette(); return; }
+      if (e.key === 'Escape') {
+        if (!$('#palette').hidden) closePalette();
+        else if (document.body.classList.contains('zen')) exitZen();
+        else closePops();
         return;
-    }
-    
-    // UPDATED: The structure already allows for cleaner visual using the new CSS
-    container.innerHTML = '<div class="subject-list">' + tasks.map(t => `
-        <div class="subject-item" data-subject-name="${escapeHTML(t.task)}">
-            <div class="subject-item-header">
-                <span class="subject-item-name">${escapeHTML(t.task)}</span>
-                <span class="subject-item-time">${formatTimeShort(t.duration)}</span>
-                <div class="subject-item-actions">
-                    <button class="subject-action-btn edit">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button class="subject-action-btn delete">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </button>
-                </div>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${totalStudyTime > 0 ? (t.duration / totalStudyTime) * 100 : 0}%"></div>
-            </div>
-        </div>`).join('') + '</div>';
-
-    // attach only once - this function runs on every stats render
-    if (!container.dataset.bound) {
-        container.dataset.bound = '1';
-        container.addEventListener('click', (e) => {
-            const subjectItem = e.target.closest('.subject-item');
-            if (!subjectItem) return;
-
-            const subjectName = subjectItem.dataset.subjectName;
-
-            if (e.target.closest('.edit')) {
-                handleEditSubject(subjectItem);
-            }
-            if (e.target.closest('.delete')) {
-                handleDeleteSubject(subjectName);
-            }
-        });
-    }
-};
-
-const renderRecentCompletedTasks = () => {
-    if (!Array.isArray(todos)) return;
-    const recentCompleted = todos.filter(t => t && t.completed)
-        .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 5);
-    const container = document.getElementById('recentCompletedTasks');
-    if (recentCompleted.length === 0) {
-        container.innerHTML = `<div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 64px; height: 64px; opacity: 0.1;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Complete tasks to see them here!</p></div>`;
-    } else {
-        container.innerHTML = '<ul class="task-list">' + recentCompleted.map(t => createTaskElement(t)).join('') + '</ul>';
-        addEventListenersForTasks('#recentCompletedTasks');
-    }
-};
-
-const renderProgressInsights = () => {
-    const sessions = storage.get('timeSessions', []);
-    const last7DaysData = Array.from({ length: 7 }, (_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - (6 - i));
-        const dayStudy = sessions.filter(s => new Date(s.date).toDateString() === date.toDateString() && s.type === 'study').reduce((acc, s) => acc + s.duration, 0);
-        return { day: date.toLocaleDateString('en-US', { weekday: 'short' }), duration: dayStudy };
+      }
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key >= '1' && e.key <= '5') navigate(PAGES[+e.key - 1]);
+      else if (e.key === ' ' && currentPage === 'focus' && tag !== 'button' && tag !== 'a') { e.preventDefault(); toggleTimer(); }
+      else if (e.key.toLowerCase() === 'f' && currentPage === 'focus') enterZen();
     });
-    
-    const totalTime = last7DaysData.reduce((acc, d) => acc + d.duration, 0);
-    const container = document.getElementById('progressInsights');
-    container.innerHTML = (totalTime === 0)
-        ? `<p class="small-text">Start tracking your study time to see your progress here!</p>`
-        : `<p>You studied a total of <strong>${formatTimeShort(totalTime)}</strong> over the last 7 days.</p>
-           <p class="small-text">Day breakdown (minutes):</p>
-           <div style="display: flex; gap: 10px; margin-top: 1rem; flex-wrap: wrap;">
-           ${last7DaysData.map(d => `<span style="background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 5px; font-size: 0.8rem;">${d.day}: ${Math.round(d.duration / 60)}m</span>`).join('')}
-           </div>`;
-};
 
-document.getElementById('statsTabList').addEventListener('click', (e) => {
-    if (e.target.classList.contains('tab')) {
-        selectedStatsDate = null;
-        const btnText = document.querySelector('#datePickerBtn span');
-        if (btnText) btnText.textContent = 'View specific date';
-        
-        currentStatsPeriod = e.target.dataset.tab;
-        storage.set('currentStatsPeriod', currentStatsPeriod);
-        updateStats();
-    }
-});
+    // keep the clock honest when the tab wakes up
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && T.interval) tick(); });
 
-document.getElementById('clearDateBtn').addEventListener('click', () => {
-    selectedStatsDate = null;
-    document.querySelector('#datePickerBtn span').textContent = 'View specific date';
-    updateStats();
-});
-
-// --- Custom Calendar ---
-const calendarPopup = document.getElementById('calendarPopup');
-const datePickerBtn = document.getElementById('datePickerBtn');
-
-const renderCalendar = () => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const today = new Date();
-    
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    let html = `
-        <div class="calendar-header">
-            <button class="calendar-nav" id="cal-prev">‹</button>
-            <span>${calendarDate.toLocaleString('default', { month: 'long' })} ${year}</span>
-            <button class="calendar-nav" id="cal-next">›</button>
-        </div>
-        <div class="calendar-grid">
-            ${['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => `<div class="calendar-weekday">${d}</div>`).join('')}
-            ${Array.from({ length: firstDay }).map(() => '<div></div>').join('')}
-            ${Array.from({ length: daysInMonth }, (_, i) => {
-                const day = i + 1;
-                const currentDate = new Date(year, month, day);
-                const isToday = today.toDateString() === currentDate.toDateString();
-                const isSelected = selectedStatsDate && toLocalDate(selectedStatsDate).toDateString() === currentDate.toDateString();
-                return `<div class="calendar-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}" data-date="${localDateKey(currentDate)}">${day}</div>`;
-            }).join('')}
-        </div>`;
-    calendarPopup.innerHTML = html;
-    
-    // build a fresh 1st-of-month date (setMonth on e.g. Jan 31 used to skip months)
-    document.getElementById('cal-prev').addEventListener('click', (e) => { e.stopPropagation(); calendarDate = new Date(year, month - 1, 1); renderCalendar(); });
-    document.getElementById('cal-next').addEventListener('click', (e) => { e.stopPropagation(); calendarDate = new Date(year, month + 1, 1); renderCalendar(); });
-    
-    calendarPopup.querySelectorAll('.calendar-day').forEach(day => {
-        day.addEventListener('click', (e) => {
-            selectedStatsDate = e.target.dataset.date;
-            const localDate = toLocalDate(selectedStatsDate);
-            
-            document.querySelector('#datePickerBtn span').textContent = `${localDate.toLocaleDateString('default', { month: 'long', day: 'numeric', year: 'numeric' })}`;
-            
-            updateStats();
-            calendarPopup.classList.remove('show');
-        });
+    // changes made in another tab
+    window.addEventListener('storage', (e) => {
+      if (!booted || !e.key) return;
+      if (['todos', 'timeSessions', 'routine', 'settings', 'theme', 'username'].indexOf(e.key) !== -1) { loadAll(); applyLook(); refreshAll(); }
     });
-};
 
-datePickerBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    calendarPopup.classList.toggle('show');
-    if (calendarPopup.classList.contains('show')) {
-        renderCalendar();
-    }
-});
-
-window.addEventListener('click', (e) => {
-    if (!calendarPopup.contains(e.target) && !datePickerBtn.contains(e.target)) {
-        calendarPopup.classList.remove('show');
-    }
-});
-
-// --- Chart Modal ---
-const graphModal = document.getElementById('graphModal');
-document.getElementById('closeModal').addEventListener('click', () => graphModal.classList.remove('active'));
-graphModal.addEventListener('click', (e) => { if (e.target === graphModal) graphModal.classList.remove('active'); });
-
-const openChartModal = (period, dateOverride = null) => {
-    const sessions = storage.get('timeSessions', []);
-    let chartData = [], title = "Study Time", maxVal = 0;
-    const now = dateOverride ? toLocalDate(dateOverride) : new Date();
-
-    switch(period) {
-        case 'today':
-            title = `Today's Hourly Study Time`;
-            const dateStr = now.toDateString();
-            chartData = Array.from({length: 24}, (_, i) => {
-                const hourSessions = sessions.filter(s => {
-                    const d = new Date(s.date);
-                    return d.toDateString() === dateStr && s.type === 'study' && d.getHours() === i;
-                });
-                return {
-                    label: i === 0 ? '12AM' : i < 12 ? `${i}AM` : i === 12 ? '12PM' : `${i-12}PM`,
-                    value: hourSessions.reduce((acc, s) => acc + s.duration, 0)
-                };
-            });
-            break;
-        case 'week':
-            title = 'Study Time - This Week';
-            const weekStart = new Date(now);
-            weekStart.setDate(now.getDate() - now.getDay());
-            weekStart.setHours(0,0,0,0);
-            chartData = Array.from({length: 7}, (_, i) => {
-                const day = new Date(weekStart);
-                day.setDate(weekStart.getDate() + i);
-                const dayStr = day.toDateString();
-                const daySessions = sessions.filter(s => new Date(s.date).toDateString() === dayStr && s.type === 'study');
-                return {
-                    label: day.toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-                    value: daySessions.reduce((acc, s) => acc + s.duration, 0)
-                };
-            });
-            break;
-        case 'month':
-            title = `Study Time - ${now.toLocaleString('default', { month: 'long' })}`;
-            const year = now.getFullYear();
-            const month = now.getMonth();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            chartData = Array.from({length: daysInMonth}, (_, i) => {
-                const day = i + 1;
-                const daySessions = sessions.filter(s => {
-                    const d = new Date(s.date);
-                    return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day && s.type === 'study';
-                });
-                return {
-                    label: day,
-                    value: daySessions.reduce((acc, s) => acc + s.duration, 0)
-                };
-            });
-            break;
-        case 'year':
-            title = `Study Time - ${now.getFullYear()}`;
-            const currentYear = now.getFullYear();
-            chartData = Array.from({length: 12}, (_, i) => {
-                const monthSessions = sessions.filter(s => {
-                    const d = new Date(s.date);
-                    return d.getFullYear() === currentYear && d.getMonth() === i && s.type === 'study';
-                });
-                return {
-                    label: new Date(0, i).toLocaleString('default', { month: 'short' }),
-                    value: monthSessions.reduce((acc, s) => acc + s.duration, 0),
-                    month: i,
-                    year: currentYear
-                };
-            });
-            break;
-    }
-    
-    maxVal = Math.max(...chartData.map(d => d.value), 1);
-    const scaleMax = Math.ceil(maxVal / 3600) + 0.5; // in hours
-    
-    const yAxisHtml = `
-        <div class="y-axis">
-            <span>${scaleMax.toFixed(1)}h</span>
-            <span>${(scaleMax * 0.75).toFixed(1)}h</span>
-            <span>${(scaleMax * 0.5).toFixed(1)}h</span>
-            <span>${(scaleMax * 0.25).toFixed(1)}h</span>
-            <span>0h</span>
-        </div>`;
-    
-    const chartHtml = `
-        <div class="chart-container">
-            ${yAxisHtml}
-            <div class="chart-scroll-container">
-                <div class="chart-grid">
-                    ${chartData.map((d) => `
-                        <div class="chart-bar-group" 
-                             ${period === 'year' ? `data-month="${d.month}" data-year="${d.year}"` : ''}>
-                            <div class="chart-bar" style="height: ${ (d.value / (scaleMax * 3600)) * 100}%">
-                                <div class="chart-tooltip">${formatTimeShort(d.value)}</div>
-                            </div>
-                            <div class="chart-label">${d.label}</div>
-                        </div>`).join('')}
-                </div>
-            </div>
-        </div>
-        ${period === 'year' ? '<p class="small-text" style="text-align: center; margin-top: 1rem;">Click on a month to view its daily breakdown.</p>' : ''}`;
-        
-    document.querySelector('#modalTitle span').textContent = title;
-    document.getElementById('modalBody').innerHTML = chartHtml;
-
-    if (period === 'year') {
-        document.querySelectorAll('.chart-bar-group').forEach(bar => {
-            bar.addEventListener('click', (e) => {
-                const month = e.currentTarget.dataset.month;
-                const year = e.currentTarget.dataset.year;
-                if (month && year) {
-                    const newDate = new Date(year, month);
-                    openChartModal('month', newDate);
-                }
-            });
-        });
-    }
-
-    graphModal.classList.add('active');
-};
-
-// --- Streak Calendar ---
-const getStreakColorLevel = (seconds) => {
-    const hours = seconds / 3600;
-    if (hours === 0) return 0;
-    if (hours < 1) return 1;
-    if (hours < 2) return 2;
-    if (hours < 3) return 3;
-    return 4;
-};
-
-const calculateStreaks = (activityMap) => {
-    let longestStreak = 0;
-    let currentStreak = 0;
-    let tempLongest = 0;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // 1. Calculate Current Streak by checking today and yesterday
-    const sortedDates = Object.keys(activityMap).sort();
-    
-    const todayStr = localDateKey(today);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = localDateKey(yesterday);
-
-    // Check if today is active
-    if (activityMap[todayStr]) {
-        currentStreak = 1;
-        let day = yesterday;
-        let active = true;
-        // Go backwards until the streak is broken
-        while(active) {
-            const dayStr = localDateKey(day);
-            if (activityMap[dayStr]) {
-                currentStreak++;
-                day.setDate(day.getDate() - 1);
-            } else {
-                active = false;
-            }
-        }
-    } else if (activityMap[yesterdayStr]) {
-        // If today is inactive, check if yesterday was active (i.e. streak broken today, so current streak is 0)
-        currentStreak = 0;
-    }
-    
-    // 2. Calculate Longest Streak by iterating through all sorted activity dates
-    if (sortedDates.length > 0) {
-        tempLongest = 1;
-        longestStreak = 1;
-        for (let i = 1; i < sortedDates.length; i++) {
-            const currentDate = new Date(sortedDates[i]);
-            const prevDate = new Date(sortedDates[i - 1]);
-            
-            // Calculate difference in days, rounding to handle time component differences
-            const diffTime = Math.abs(currentDate.getTime() - prevDate.getTime());
-            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays === 1) {
-                tempLongest++;
-            } else if (diffDays > 1) {
-                if (tempLongest > longestStreak) {
-                    longestStreak = tempLongest;
-                }
-                tempLongest = 1; // Reset for a new potential streak
-            }
-        }
-        if (tempLongest > longestStreak) {
-            longestStreak = tempLongest;
-        }
-    } else {
-        longestStreak = 0;
-    }
-
-    return { currentStreak, longestStreak };
-};
-
-const renderStreakGrid = (year) => {
-    const allSessions = storage.get('timeSessions', []);
-    const activityMap = allSessions
-        .filter(s => s.type === 'study')
-        .reduce((acc, session) => {
-            // Use only the date part for grouping
-            const date = localDateKey(new Date(session.date));
-            acc[date] = (acc[date] || 0) + session.duration;
-            return acc;
-        }, {});
-
-    const yearActivityMap = Object.keys(activityMap)
-        .filter(date => Number(date.slice(0, 4)) === year)
-        .reduce((acc, date) => {
-            acc[date] = activityMap[date];
-            return acc;
-        }, {});
-
-    const streaks = calculateStreaks(activityMap);
-    const totalActiveDays = Object.keys(yearActivityMap).length;
-    
-    const totalYearSessions = allSessions.filter(s => s.type === 'study' && new Date(s.date).getFullYear() === year).length;
-
-    document.getElementById('totalSubmissions').textContent = `${totalYearSessions} sessions in ${year}`;
-    document.getElementById('totalActiveDays').textContent = totalActiveDays;
-    document.getElementById('maxStreak').textContent = streaks.longestStreak;
-    // NEW: Update Current Streak Display
-    document.getElementById('currentStreak').textContent = streaks.currentStreak;
-
-
-    const calendarContainer = document.getElementById('streakCalendar');
-    calendarContainer.innerHTML = '';
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-    for (let month = 0; month < 12; month++) {
-        const monthWrapper = document.createElement('div');
-        monthWrapper.className = 'streak-month-wrapper';
-
-        const monthLabel = document.createElement('div');
-        monthLabel.className = 'streak-month-label';
-        monthLabel.textContent = monthNames[month];
-        
-        const monthGrid = document.createElement('div');
-        monthGrid.className = 'streak-month-grid';
-
-        const firstDateOfMonth = new Date(year, month, 1);
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-        const firstDayOfWeek = firstDateOfMonth.getDay(); 
-        for (let i = 0; i < firstDayOfWeek; i++) {
-            const padder = document.createElement('div');
-            monthGrid.appendChild(padder);
-        }
-
-        for (let day = 1; day <= daysInMonth; day++) {
-            const date = new Date(year, month, day);
-            const dateString = localDateKey(date);
-            
-            const dayDiv = document.createElement('div');
-            dayDiv.className = 'streak-day';
-
-            const studySeconds = activityMap[dateString] || 0;
-            const colorLevel = getStreakColorLevel(studySeconds);
-            dayDiv.classList.add(`streak-level-${colorLevel}`);
-            
-            const studyTimeText = studySeconds > 0 ? `${formatTimeShort(studySeconds)} of study` : 'no study';
-            const tooltipText = `${date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} - ${studyTimeText}`;
-            dayDiv.dataset.tooltip = tooltipText;
-            
-            monthGrid.appendChild(dayDiv);
-        }
-        
-        monthWrapper.appendChild(monthLabel);
-        monthWrapper.appendChild(monthGrid);
-        calendarContainer.appendChild(monthWrapper);
-    }
-};
-
-
-const setupStreakCalendar = () => {
-    const yearSelector = document.getElementById('streakYearSelector');
-    if (!yearSelector) return; 
-
-    const sessions = storage.get('timeSessions', []);
-    let years = [...new Set(sessions.map(s => new Date(s.date).getFullYear()))];
-    const currentYear = new Date().getFullYear();
-    if (!years.includes(currentYear)) {
-        years.push(currentYear);
-    }
-    if(years.length === 0) {
-        years.push(currentYear);
-    }
-    years.sort((a,b) => b-a);
-
-    yearSelector.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
-    
-    streakYear = years[0];
-    yearSelector.value = streakYear;
-
-    renderStreakGrid(streakYear);
-
-    yearSelector.addEventListener('change', (e) => {
-        streakYear = parseInt(e.target.value, 10);
-        renderStreakGrid(streakYear);
+    // cloud sync finished (or account changed)
+    document.addEventListener('cloud-sync-ready', () => {
+      if (!booted) return;
+      loadAll();
+      applyLook();
+      resumeTimer();
+      refreshAll();
     });
-};
+
+    // keep "now" markers fresh
+    setInterval(() => {
+      if (document.hidden) return;
+      if (currentPage === 'home') { renderHomeNow(); }
+      else if (currentPage === 'planner' && !S.ui.routineEdit) renderPlanner();
+    }, 30000);
+  }
+
+  // ------------------------------------------------------------
+  // BOOT
+  // ------------------------------------------------------------
+  function resumeTimer() {
+    if (T.interval) return;
+    const ts = S.timer;
+    if (ts.isRunning && ts.startTime) {
+      const elapsedMs = Date.now() - ts.startTime;
+      if (elapsedMs < 12 * 3600 * 1000) { startTimer(true); return; }
+      // a timer left running for 12h+ is almost certainly forgotten: drop it
+      ts.isRunning = false; ts.seconds = 0; ts.startTime = null;
+      saveTimer();
+    } else if (ts.isRunning) {
+      ts.isRunning = false;
+      saveTimer();
+    }
+  }
+
+  function waitForCloud() {
+    return new Promise((resolve) => {
+      if (window.__firestoreDataLoaded) return resolve();
+      const done = () => { clearTimeout(t); resolve(); };
+      const t = setTimeout(done, 10000);                    // never hang forever
+      document.addEventListener('cloud-sync-ready', done, { once: true });
+    });
+  }
+
+  async function boot() {
+    wire();
+    await waitForCloud();
+    loadAll();
+    initOrbs();
+    applyLook();
+    renderChrome();
+    show(location.hash.slice(1) || 'home');
+    resumeTimer();
+    updateTimerUI();
+    booted = true;
+
+    if (window.SF && window.SF.badges) window.SF.badges.init();
+    if (window.__cloudSyncError && getUser()) showToast('Cloud sync is having trouble. Your data is saved on this device.', 5000);
+
+    const loader = $('#loader');
+    loader.classList.add('done');
+    setTimeout(() => loader.remove(), 700);
+  }
+
+  // ------------------------------------------------------------
+  // public surface for insights.js
+  // ------------------------------------------------------------
+  window.SF = Object.assign(window.SF || {}, {
+    S: S, storage: storage, $: $, $$: $$, esc: esc, pad2: pad2, dayKey: dayKey, parseKey: parseKey, clamp: clamp, ico: ico,
+    fmtShort: fmtShort, timeAgo: timeAgo, studyDaily: studyDaily, streaks: streaks, levelInfo: levelInfo, xpTotal: xpTotal,
+    totalStudySec: totalStudySec, barChart: barChart, toast: showToast, navigate: navigate, saveSessions: saveSessions,
+    reload: refreshAll, reduceMotion: reduceMotion
+  });
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
