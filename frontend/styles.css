@@ -894,3 +894,15 @@ body.zen .orb-wrap-lg { width: min(84vh, 92vw); }
   .rh-hint { bottom: 110px; font-size: .85rem; letter-spacing: .16em; }
   .realm-more { bottom: 74px; }
 }
+
+/* ============================================================
+   THE REALM v2  (real WebGL 3D on top of the 2D fallback)
+   ============================================================ */
+#realmGL { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity .5s; }
+.realm.gl #realmGL { opacity: 1; }
+.realm.gl #realmCanvas, .realm.gl .realm-orb { display: none; }
+.realm:not(.gl) #realmGL { display: none; }
+.realm-labels { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.rl { position: absolute; left: 0; top: 0; text-align: center; white-space: nowrap; font: 700 1rem "Rajdhani", var(--font-display); color: #ffd7de; text-shadow: 0 0 12px rgba(255, 77, 109, .9), 0 2px 6px rgba(0, 0, 0, .6); transition: opacity .2s; }
+.rl small { display: block; font: 600 .72em "Rajdhani", sans-serif; color: #ff8fa3; letter-spacing: .04em; margin-top: 1px; }
+.rl.dormant { color: rgba(200, 208, 230, .55); text-shadow: 0 2px 6px rgba(0, 0, 0, .6); font-size: .82rem; }

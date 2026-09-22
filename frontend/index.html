@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 
   <script>
     /* apply saved look before first paint (no flash) */
@@ -128,8 +128,10 @@
 
       <!-- THE REALM: an immersive 3D world you stand inside -->
       <section class="realm" id="realm" aria-label="Your realm. Click the orb to start a focus session.">
+        <canvas id="realmGL" aria-hidden="true"></canvas>
         <canvas id="realmCanvas" aria-hidden="true"></canvas>
         <canvas id="realmOrb" class="realm-orb" aria-hidden="true"></canvas>
+        <div class="realm-labels" id="realmLabels" aria-hidden="true"></div>
         <div class="realm-hud">
           <div class="rh-card">
             <div class="sys-rank rank-E rh-rank" id="rhRank"><span>E</span></div>
@@ -578,13 +580,13 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <!-- 2) Firebase config (built in, no backend call) -->
-  <script src="firebase-init.js?v=5"></script>
+  <script src="firebase-init.js?v=6"></script>
   <!-- 3) 3D orb + effects -->
-  <script src="orb.js?v=5"></script>
-  <script src="fx.js?v=5"></script>
+  <script src="orb.js?v=6"></script>
+  <script src="fx.js?v=6"></script>
   <!-- 4) App -->
-  <script src="script.js?v=5"></script>
+  <script src="script.js?v=6"></script>
   <!-- 5) Cloud sync: wraps `storage` so every save also goes to Firestore. Must load AFTER script.js -->
-  <script src="firebase-wrapper.js?v=5"></script>
+  <script src="firebase-wrapper.js?v=6"></script>
 </body>
 </html>
