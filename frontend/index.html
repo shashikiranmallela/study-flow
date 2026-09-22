@@ -10,8 +10,8 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,340..380;0,9..144,600;1,9..144,420&family=Instrument+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=7">
 
   <script>
     /* apply saved look before first paint (no flash) */
@@ -126,32 +126,8 @@
     <!-- ---------- HOME ---------- -->
     <section class="page active" id="page-home" aria-labelledby="homeTitle">
 
-      <!-- THE REALM: an immersive 3D world you stand inside -->
-      <section class="realm" id="realm" aria-label="Your realm. Click the orb to start a focus session.">
-        <canvas id="realmGL" aria-hidden="true"></canvas>
-        <canvas id="realmCanvas" aria-hidden="true"></canvas>
-        <canvas id="realmOrb" class="realm-orb" aria-hidden="true"></canvas>
-        <div class="realm-labels" id="realmLabels" aria-hidden="true"></div>
-        <div class="realm-hud">
-          <div class="rh-card">
-            <div class="sys-rank rank-E rh-rank" id="rhRank"><span>E</span></div>
-            <div class="rh-info"><b id="rhName">Hunter</b><small id="rhLine">Level 1</small><div class="bar-h xp"><i id="rhXp"></i></div></div>
-          </div>
-          <div class="rh-side">
-            <div class="rh-streak"><svg class="i"><use href="#i-flame"/></svg><b id="rhStreak">0</b><small>day streak</small></div>
-            <div class="rh-quests" id="rhQuests"></div>
-          </div>
-        </div>
-        <p class="rh-hint" id="rhHint">Click the orb to begin</p>
-        <button class="realm-more" id="realmMore" type="button">Overview <svg class="i"><use href="#i-plus"/></svg></button>
-        <div class="realm-tip" id="realmTip" hidden></div>
-        <div class="realm-boot" id="realmBoot" hidden><pre id="realmBootText"></pre></div>
-        <div class="realm-flash" id="realmFlash"></div>
-      </section>
-
-      <div class="bento">
-
-        <article class="tile tile-hero" data-tilt>
+      <section class="hero" aria-label="Overview">
+        <article class="hero-inner">
           <div class="hero-copy">
             <p class="hero-date" id="heroDate"></p>
             <h1 id="homeTitle"><span id="greetWord">Hello</span>, <span id="username">friend</span></h1>
@@ -177,6 +153,13 @@
             </div>
           </div>
         </article>
+        <button class="hero-scroll" id="heroScroll" type="button" aria-label="See more">
+          <span></span>
+          <svg class="i"><use href="#i-plus"/></svg>
+        </button>
+      </section>
+
+      <div class="bento">
 
         <article class="tile tile-level" data-tilt>
           <div class="tile-pop">
@@ -574,19 +557,22 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <canvas id="fxCanvas" aria-hidden="true"></canvas>
 
+  <div class="cursor-dot" id="cursorDot" aria-hidden="true"></div>
+  <div class="cursor-ring" id="cursorRing" aria-hidden="true"></div>
+
   <!-- ============ SCRIPTS (order matters) ============ -->
   <!-- 1) Firebase v8 SDK -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <!-- 2) Firebase config (built in, no backend call) -->
-  <script src="firebase-init.js?v=6"></script>
+  <script src="firebase-init.js?v=7"></script>
   <!-- 3) 3D orb + effects -->
-  <script src="orb.js?v=6"></script>
-  <script src="fx.js?v=6"></script>
+  <script src="orb.js?v=7"></script>
+  <script src="fx.js?v=7"></script>
   <!-- 4) App -->
-  <script src="script.js?v=6"></script>
+  <script src="script.js?v=7"></script>
   <!-- 5) Cloud sync: wraps `storage` so every save also goes to Firestore. Must load AFTER script.js -->
-  <script src="firebase-wrapper.js?v=6"></script>
+  <script src="firebase-wrapper.js?v=7"></script>
 </body>
 </html>
