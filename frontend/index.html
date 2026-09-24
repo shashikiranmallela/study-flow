@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,340..380;0,9..144,600;1,9..144,420&family=Instrument+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="styles.css?v=8">
 
   <script>
     /* apply saved look before first paint (no flash) */
@@ -224,11 +224,15 @@
       <div class="focus-layout">
 
         <aside class="panel focus-left">
-          <h2 class="panel-title">Focus on</h2>
-          <label class="sr" for="taskInput">What are you studying?</label>
+          <div class="seg seg-kind" id="kindSeg" role="tablist" aria-label="Activity type">
+            <button type="button" role="tab" data-kind="study">Study</button>
+            <button type="button" role="tab" data-kind="exercise">Exercise</button>
+          </div>
+          <h2 class="panel-title" id="focusOnTitle">Focus on</h2>
+          <label class="sr" for="taskInput" id="taskInputLabel">What are you studying?</label>
           <input id="taskInput" class="input" type="text" maxlength="60" placeholder="Subject, e.g. DSA" autocomplete="off">
           <div class="chips" id="subjectChips"></div>
-          <h3 class="panel-sub">From your tasks</h3>
+          <h3 class="panel-sub" id="pickTitle">From your tasks</h3>
           <ul class="pick-list" id="focusTaskPicks"></ul>
         </aside>
 
@@ -420,6 +424,11 @@
           <ul class="task-list task-list-compact" id="insightDone"></ul>
           <p class="empty" id="insightDoneEmpty" hidden>Complete a task and it lands here.</p>
         </section>
+
+        <section class="panel bests-panel">
+          <h2 class="panel-title">Personal bests</h2>
+          <div id="bests"></div>
+        </section>
       </div>
     </section>
 
@@ -560,19 +569,25 @@
   <div class="cursor-dot" id="cursorDot" aria-hidden="true"></div>
   <div class="cursor-ring" id="cursorRing" aria-hidden="true"></div>
 
+  <!-- COMPANION: follows across every page, reacts to what you're doing -->
+  <button class="companion" id="companion" type="button" aria-label="Open focus">
+    <span class="companion-line" id="companionLine" hidden></span>
+    <canvas id="companionCv" aria-hidden="true"></canvas>
+  </button>
+
   <!-- ============ SCRIPTS (order matters) ============ -->
   <!-- 1) Firebase v8 SDK -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <!-- 2) Firebase config (built in, no backend call) -->
-  <script src="firebase-init.js?v=7"></script>
+  <script src="firebase-init.js?v=8"></script>
   <!-- 3) 3D orb + effects -->
-  <script src="orb.js?v=7"></script>
-  <script src="fx.js?v=7"></script>
+  <script src="orb.js?v=8"></script>
+  <script src="fx.js?v=8"></script>
   <!-- 4) App -->
-  <script src="script.js?v=7"></script>
+  <script src="script.js?v=8"></script>
   <!-- 5) Cloud sync: wraps `storage` so every save also goes to Firestore. Must load AFTER script.js -->
-  <script src="firebase-wrapper.js?v=7"></script>
+  <script src="firebase-wrapper.js?v=8"></script>
 </body>
 </html>

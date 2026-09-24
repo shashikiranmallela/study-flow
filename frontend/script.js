@@ -112,7 +112,7 @@
     { id: '12', time: '10:00 PM', activity: 'Sleep preparation' }
   ];
   const DEFAULT_SETTINGS = { accent: 'aurora', goalHours: 4, mode: 'stopwatch', focusMin: 25, breakMin: 5, volume: 0.5, chime: true, lite: false, tasksDone: 0 };
-  const defaultTimer = () => ({ seconds: 0, isRunning: false, isBreak: false, currentTask: '', startTime: null });
+  const defaultTimer = () => ({ seconds: 0, isRunning: false, isBreak: false, currentTask: '', startTime: null, kind: 'study' });
 
   // ------------------------------------------------------------
   // state
@@ -134,7 +134,7 @@
       if (d && typeof d.toDate === 'function') d = d.toDate();        // Firestore Timestamp
       const dt = new Date(d);
       if (isNaN(dt.getTime())) return null;
-      return { date: dt.toISOString(), duration: Math.max(0, Number(x.duration) || 0), type: x.type === 'break' ? 'break' : 'study', task: x.task ? String(x.task) : null };
+      return { date: dt.toISOString(), duration: Math.max(0, Number(x.duration) || 0), type: x.type === 'break' ? 'break' : 'study', task: x.task ? String(x.task) : null, kind: x.kind === 'exercise' ? 'exercise' : 'study' };
     }).filter(Boolean);
   }
   function cleanTodos(list) {
@@ -527,6 +527,7 @@
     saveTimer();
     T.interval = setInterval(tick, 500);
     if (!resume && window.SF && window.SF.system) window.SF.system.onStart();
+    if (window.SF && window.SF.companion) window.SF.companion.set(S.timer.isBreak ? 'break' : 'focus');
     applyOrbLook();
     updateTimerUI();
   }
@@ -536,6 +537,7 @@
     if (ts.isRunning && ts.startTime) ts.seconds = Math.floor((Date.now() - ts.startTime) / 1000);
     ts.isRunning = false;
     saveTimer();
+    if (window.SF && window.SF.companion) window.SF.companion.set('idle');
     applyOrbLook();
   }
   function tick() {
@@ -551,7 +553,8 @@
       date: new Date().toISOString(),
       duration: sec,
       type: S.timer.isBreak ? 'break' : 'study',
-      task: S.timer.isBreak ? null : (S.timer.currentTask || null)
+      task: S.timer.isBreak ? null : (S.timer.currentTask || null),
+      kind: S.timer.kind === 'exercise' ? 'exercise' : 'study'
     };
     S.sessions.push(entry);
     saveSessions();
@@ -575,6 +578,7 @@
       if (big && window.SFX) window.SFX.Confetti.burst(window.innerWidth / 2, window.innerHeight * 0.4, 110);
     }
     if (window.SF && window.SF.badges) window.SF.badges.checkNew();
+    if (window.SF && window.SF.companion) window.SF.companion.cheer(r.after && r.before && r.after.level > r.before.level);
   }
 
   function finishPomodoro() {
@@ -630,6 +634,7 @@
     resetTimerValues();
     S.timer.isBreak = !S.timer.isBreak;
     saveTimer();
+    if (window.SF && window.SF.companion) window.SF.companion.set(S.timer.isBreak ? 'break' : 'idle');
     refreshAll();
   }
   function focusOn(text) {
@@ -698,6 +703,7 @@
   }
 
   // ---- FOCUS page ----
+  const EXERCISE_PRESETS = ['Cardio', 'Strength', 'Yoga', 'Mobility', 'Sport'];
   function renderFocus() {
     $('#taskInput').value = S.timer.isBreak ? $('#taskInput').value : (S.timer.currentTask || $('#taskInput').value || '');
     $$('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === S.settings.mode));
@@ -705,24 +711,36 @@
     $$('#pomoPresets .chip-btn').forEach((c) => c.classList.toggle('on', +c.dataset.f === S.settings.focusMin && +c.dataset.b === S.settings.breakMin));
     $$('#soundGrid button').forEach((b) => b.classList.toggle('on', b.dataset.sound === (window.SFX ? window.SFX.Sound.kind : 'off')));
     $('#volume').value = S.settings.volume;
+    const ex = S.timer.kind === 'exercise';
+    $$('#kindSeg button').forEach((b) => { b.classList.toggle('on', b.dataset.kind === (ex ? 'exercise' : 'study')); b.disabled = !!S.timer.isRunning; });
+    $('#focusOnTitle').textContent = ex ? 'Train' : 'Focus on';
+    $('#taskInputLabel').textContent = ex ? 'What are you training?' : 'What are you studying?';
+    $('#taskInput').placeholder = ex ? 'Activity, e.g. Cardio' : 'Subject, e.g. DSA';
+    $('#pickTitle').textContent = ex ? 'Quick picks' : 'From your tasks';
     renderFocusSide();
     updateTimerUI();
   }
   function renderFocusSide() {
-    // recent subjects
-    const seen = [];
-    for (let i = S.sessions.length - 1; i >= 0 && seen.length < 6; i--) {
-      const s = S.sessions[i];
-      if (s.type === 'study' && s.task && seen.indexOf(s.task) === -1) seen.push(s.task);
+    const ex = S.timer.kind === 'exercise';
+    if (ex) {
+      $('#subjectChips').innerHTML = EXERCISE_PRESETS.map((s) => '<button type="button" class="chip chip-btn" data-subject="' + esc(s) + '">' + esc(s) + '</button>').join('');
+    } else {
+      const seen = [];
+      for (let i = S.sessions.length - 1; i >= 0 && seen.length < 6; i--) {
+        const s = S.sessions[i];
+        if (s.type === 'study' && s.kind !== 'exercise' && s.task && seen.indexOf(s.task) === -1) seen.push(s.task);
+      }
+      $('#subjectChips').innerHTML = seen.map((s) => '<button type="button" class="chip chip-btn" data-subject="' + esc(s) + '">' + esc(s) + '</button>').join('');
     }
-    $('#subjectChips').innerHTML = seen.map((s) => '<button type="button" class="chip chip-btn" data-subject="' + esc(s) + '">' + esc(s) + '</button>').join('');
     $$('#subjectChips button').forEach((b) => { b.disabled = !!S.timer.isRunning; });
 
-    // tasks to focus on
-    const active = S.todos.filter((t) => !t.completed).slice(0, 6);
-    $('#focusTaskPicks').innerHTML = active.length
-      ? active.map((t) => '<li><button type="button" class="pick" data-pick="' + esc(t.text) + '">' + ico('target') + '<span>' + esc(t.text) + '</span></button></li>').join('')
-      : '<li class="pick-empty">Add tasks and they show up here.</li>';
+    // tasks to focus on (study mode only — tasks aren't exercise-specific)
+    const active = ex ? [] : S.todos.filter((t) => !t.completed).slice(0, 6);
+    $('#focusTaskPicks').innerHTML = ex
+      ? EXERCISE_PRESETS.slice(0, 3).map((s) => '<li><button type="button" class="pick" data-pick="' + esc(s) + '">' + ico('target') + '<span>' + esc(s) + '</span></button></li>').join('')
+      : active.length
+        ? active.map((t) => '<li><button type="button" class="pick" data-pick="' + esc(t.text) + '">' + ico('target') + '<span>' + esc(t.text) + '</span></button></li>').join('')
+        : '<li class="pick-empty">Add tasks and they show up here.</li>';
 
     // today summary
     const now = new Date();
@@ -765,6 +783,7 @@
       if (window.SFX) window.SFX.Confetti.burst(x || window.innerWidth / 2, y || window.innerHeight / 2, 46, { spread: 9, up: 9 });
       if (window.SF && window.SF.badges) window.SF.badges.checkNew();
       if (window.SF && window.SF.system) window.SF.system.check();
+      if (window.SF && window.SF.companion) window.SF.companion.cheer(false);
     }
     refreshAll();
   }
@@ -1028,6 +1047,17 @@
       saveSettings();
       renderFocus();
     });
+    $('#kindSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-kind]');
+      const cur = S.timer.kind === 'exercise' ? 'exercise' : 'study';
+      if (!b || b.dataset.kind === cur) return;
+      if (elapsedSec() > 0) { showToast('End or reset the current session to switch.', 3000); return; }
+      S.timer.kind = b.dataset.kind;
+      S.timer.currentTask = '';
+      $('#taskInput').value = '';
+      saveTimer();
+      renderFocus();
+    });
     $('#pomoPresets').addEventListener('click', (e) => {
       const b = e.target.closest('.chip-btn');
       if (!b) return;
@@ -1269,7 +1299,7 @@
   'use strict';
   const SF = window.SF;
   if (!SF) { console.error('insights.js: script.js must load first'); return; }
-  const { S, $, $$, esc, pad2, dayKey, parseKey, fmtShort, timeAgo, ico, barChart, clamp } = SF;
+  const { S, $, $$, esc, pad2, dayKey, parseKey, fmtShort, timeAgo, ico, barChart, clamp, studyDaily, streaks } = SF;
 
   const view = {
     period: 'week',
@@ -1508,6 +1538,27 @@
     $('#insightDone').innerHTML = done.map((t) =>
       '<li class="task done"><span class="tick on">' + ico('check') + '</span><span class="task-text">' + esc(t.text) + '</span><span class="task-when">' + esc(timeAgo(t.completedAt)) + '</span></li>').join('');
     $('#insightDoneEmpty').hidden = done.length > 0;
+  }
+
+  // ------------------------------------------------------------
+  // personal bests  (pure computation over existing session/task data)
+  // ------------------------------------------------------------
+  function renderBests() {
+    const study = S.sessions.filter((s) => s.type === 'study');
+    const daily = studyDaily(), st = streaks(daily);
+    let longest = null;
+    study.forEach((s) => { if (!longest || s.duration > longest.duration) longest = s; });
+    let bestDayKey = null, bestDaySec = 0;
+    daily.forEach((sec, k) => { if (sec > bestDaySec) { bestDaySec = sec; bestDayKey = k; } });
+    const doneTasks = S.todos.filter((t) => t.completed).length;
+    const items = [
+      { label: 'Longest streak', val: st.best + (st.best === 1 ? ' day' : ' days') },
+      { label: 'Longest session', val: longest ? fmtShort(longest.duration) : '—', when: longest ? (longest.task || 'Untagged') : '' },
+      { label: 'Best day', val: bestDayKey ? fmtShort(bestDaySec) : '—', when: bestDayKey ? parseKey(bestDayKey).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) : '' },
+      { label: 'Tasks completed', val: String(doneTasks) }
+    ];
+    $('#bests').innerHTML = '<div class="bests-row">' + items.map((it) =>
+      '<div class="best"><div class="best-label">' + esc(it.label) + '</div><div class="best-val">' + esc(it.val) + '</div>' + (it.when ? '<div class="best-when">' + esc(it.when) + '</div>' : '') + '</div>').join('') + '</div>';
   }
 
   // ------------------------------------------------------------
@@ -1823,6 +1874,7 @@
       safe('subjects', () => renderSubjects(r, period));
       safe('tasks', () => renderDone(r, period));
       safe('trophies', renderBadges);
+      safe('bests', renderBests);
       safe('skyline', () => Sky.render());
     }
     const sub = $('#insightsSub');
@@ -2231,90 +2283,194 @@
   // ------------------------------------------------------------
   // figure drawing (original hooded shadow soldiers + boss)
   // ------------------------------------------------------------
+  const tierOf = (scale) => clamp(Math.round(((scale || 1) - 0.8) / 0.8 * 3), 0, 3);
+
   function weapon(g, x, y, h, kind, rim) {
-    const hx = x + h * 0.2, hy = y - h * 0.46;
+    const hx = x + h * 0.22, hy = y - h * 0.5;
     g.save();
     g.lineCap = 'round'; g.lineJoin = 'round';
-    g.strokeStyle = 'rgba(221,196,255,.95)'; g.fillStyle = 'rgba(221,196,255,.95)';
-    g.shadowColor = 'rgba(' + rim + ',1)'; g.shadowBlur = h * 0.05; g.lineWidth = Math.max(2, h * 0.02);
+    g.strokeStyle = 'rgba(224,218,235,.97)'; g.fillStyle = 'rgba(224,218,235,.97)';
+    g.shadowColor = 'rgba(' + rim + ',1)'; g.shadowBlur = h * 0.045; g.lineWidth = Math.max(2, h * 0.018);
     const line = (x1, y1, x2, y2) => { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
     switch (kind) {
       case 'sword': case 'crown':
-        line(hx, hy + h * 0.1, hx + h * 0.05, hy - h * 0.55); line(hx - h * 0.05, hy, hx + h * 0.08, hy - h * 0.02); break;
+        g.lineWidth = Math.max(2.5, h * 0.024); line(hx, hy + h * 0.12, hx + h * 0.05, hy - h * 0.58);
+        g.lineWidth = Math.max(2, h * 0.014); line(hx - h * 0.07, hy - h * 0.02, hx + h * 0.1, hy - h * 0.05); break;
       case 'blade':
-        line(hx, hy + h * 0.05, hx + h * 0.04, hy - h * 0.28); line(x - h * 0.2, hy + h * 0.05, x - h * 0.24, hy - h * 0.26); break;
+        line(hx, hy + h * 0.05, hx + h * 0.045, hy - h * 0.3); line(x - h * 0.22, hy + h * 0.05, x - h * 0.265, hy - h * 0.28); break;
       case 'spear':
-        line(hx, hy + h * 0.28, hx + h * 0.03, hy - h * 0.66);
-        g.beginPath(); g.moveTo(hx + h * 0.03, hy - h * 0.78); g.lineTo(hx - h * 0.02, hy - h * 0.62); g.lineTo(hx + h * 0.08, hy - h * 0.62); g.closePath(); g.fill(); break;
+        line(hx, hy + h * 0.3, hx + h * 0.03, hy - h * 0.7);
+        g.beginPath(); g.moveTo(hx + h * 0.03, hy - h * 0.83); g.lineTo(hx - h * 0.025, hy - h * 0.66); g.lineTo(hx + h * 0.085, hy - h * 0.66); g.closePath(); g.fill(); break;
       case 'bow':
-        g.beginPath(); g.arc(hx - h * 0.1, hy - h * 0.1, h * 0.32, -1.15, 1.15); g.stroke();
-        g.lineWidth = Math.max(1, h * 0.006); line(hx - h * 0.1 + Math.cos(-1.15) * h * 0.32, hy - h * 0.1 + Math.sin(-1.15) * h * 0.32, hx - h * 0.1 + Math.cos(1.15) * h * 0.32, hy - h * 0.1 + Math.sin(1.15) * h * 0.32); break;
+        g.beginPath(); g.arc(hx - h * 0.1, hy - h * 0.1, h * 0.33, -1.15, 1.15); g.stroke();
+        g.lineWidth = Math.max(1, h * 0.006); line(hx - h * 0.1 + Math.cos(-1.15) * h * 0.33, hy - h * 0.1 + Math.sin(-1.15) * h * 0.33, hx - h * 0.1 + Math.cos(1.15) * h * 0.33, hy - h * 0.1 + Math.sin(1.15) * h * 0.33); break;
       case 'shield':
-        g.beginPath(); g.ellipse(x - h * 0.22, y - h * 0.42, h * 0.1, h * 0.15, 0, 0, 6.283); g.fillStyle = 'rgba(30,12,60,.95)'; g.fill(); g.stroke();
-        line(hx, hy + h * 0.06, hx + h * 0.04, hy - h * 0.34); break;
+        g.beginPath(); g.ellipse(x - h * 0.24, y - h * 0.44, h * 0.105, h * 0.16, 0, 0, 6.283); g.fillStyle = 'rgba(24,10,30,.96)'; g.fill(); g.stroke();
+        line(hx, hy + h * 0.07, hx + h * 0.04, hy - h * 0.36); break;
       case 'staff':
-        line(hx, hy + h * 0.3, hx + h * 0.02, hy - h * 0.62);
-        g.beginPath(); g.arc(hx + h * 0.02, hy - h * 0.68, h * 0.04, 0, 6.283); g.fill(); break;
+        line(hx, hy + h * 0.32, hx + h * 0.02, hy - h * 0.66);
+        g.beginPath(); g.arc(hx + h * 0.02, hy - h * 0.72, h * 0.042, 0, 6.283); g.fill(); break;
       case 'scythe':
-        line(hx, hy + h * 0.3, hx + h * 0.03, hy - h * 0.6);
-        g.beginPath(); g.arc(hx - h * 0.1, hy - h * 0.6, h * 0.14, -0.3, 2.6, false); g.stroke(); break;
+        g.lineWidth = Math.max(2, h * 0.014); line(hx, hy + h * 0.32, hx + h * 0.03, hy - h * 0.64);
+        g.beginPath(); g.arc(hx - h * 0.1, hy - h * 0.64, h * 0.15, -0.3, 2.6, false); g.stroke(); break;
       case 'axe':
-        line(hx, hy + h * 0.28, hx + h * 0.03, hy - h * 0.5);
-        g.beginPath(); g.moveTo(hx + h * 0.03, hy - h * 0.5); g.quadraticCurveTo(hx + h * 0.2, hy - h * 0.56, hx + h * 0.16, hy - h * 0.32); g.lineTo(hx + h * 0.03, hy - h * 0.4); g.closePath(); g.fill(); break;
+        line(hx, hy + h * 0.3, hx + h * 0.03, hy - h * 0.52);
+        g.beginPath(); g.moveTo(hx + h * 0.03, hy - h * 0.52); g.quadraticCurveTo(hx + h * 0.21, hy - h * 0.58, hx + h * 0.17, hy - h * 0.33); g.lineTo(hx + h * 0.03, hy - h * 0.42); g.closePath(); g.fill(); break;
       case 'club':
-        g.lineWidth = Math.max(4, h * 0.04); line(hx, hy + h * 0.2, hx + h * 0.05, hy - h * 0.5); break;
+        g.lineWidth = Math.max(4, h * 0.045); line(hx, hy + h * 0.22, hx + h * 0.05, hy - h * 0.52); break;
       default: break;
     }
     g.restore();
   }
 
+  // A layered humanoid: boots, legs, an armoured torso, pauldrons, a flowing
+  // cape, a hooded (or bare) head with glowing eyes, and a weapon. Used for
+  // both the shadow legion and the companion, with `faction` telling them apart.
   function drawFigure(g, x, y, h, o) {
     o = o || {};
     const t = o.t || 0, alpha = o.alpha == null ? 1 : o.alpha, boss = !!o.boss;
-    const rim = boss ? '255,70,96' : '168,85,247';
+    const hero = o.faction === 'hero';
+    const tier = clamp(o.tier == null ? (boss ? 3 : 0) : o.tier, 0, 3);
+    const rim = o.rimRgb || (boss ? '255,70,96' : hero ? '124,196,255' : '168,85,247');
+    const stance = o.stance || 'idle';                                  // idle | ready | low | cheer
     g.save();
     g.globalAlpha = alpha;
-    const ag = g.createRadialGradient(x, y - h * 0.5, h * 0.05, x, y - h * 0.5, h * 0.9);
-    ag.addColorStop(0, 'rgba(' + rim + ',.32)'); ag.addColorStop(1, 'rgba(' + rim + ',0)');
-    g.fillStyle = ag; g.beginPath(); g.arc(x, y - h * 0.5, h * 0.9, 0, 6.283); g.fill();
 
-    const w = h * (boss ? 0.36 : 0.3), sh = h * 0.15, hy = y - h * 0.8, hr = h * 0.075;
-    for (let i = 0; i < 5; i++) {
-      const ph = (t * 0.3 + i * 0.2) % 1, side = i % 2 ? 1 : -1;
-      g.globalAlpha = alpha * (1 - ph) * 0.4; g.fillStyle = 'rgba(' + rim + ',1)';
-      g.beginPath(); g.ellipse(x + side * (w * 0.9 + Math.sin(ph * 6 + i) * w * 0.25), y - ph * h * 0.62, h * 0.05 * (1 + ph), h * 0.03 * (1 + ph), 0, 0, 6.283); g.fill();
+    // ground contact glow
+    const ag = g.createRadialGradient(x, y - h * 0.02, h * 0.04, x, y - h * 0.02, h * 0.55);
+    ag.addColorStop(0, 'rgba(' + rim + ',.34)'); ag.addColorStop(1, 'rgba(' + rim + ',0)');
+    g.fillStyle = ag; g.beginPath(); g.ellipse(x, y, h * 0.5, h * 0.1, 0, 0, 6.283); g.fill();
+
+    const lean = stance === 'ready' ? -0.03 : stance === 'low' ? 0.05 : 0;
+    const bob = stance === 'cheer' ? -h * 0.05 * Math.max(0, Math.sin(t * 8)) : Math.sin(t * 1.3) * h * 0.006;
+    const cy = y + bob;
+    const shoulderW = h * (hero ? 0.155 : 0.165 + tier * 0.014), waistW = shoulderW * 0.62, hipY = cy - h * 0.42, chestY = cy - h * 0.74, neckY = cy - h * 0.86;
+    const stride = h * (0.08 + (stance === 'ready' ? 0.02 : 0));
+
+    // legs / boots
+    g.fillStyle = hero ? '#1a1a22' : '#0c0612';
+    [-1, 1].forEach((s) => {
+      g.beginPath();
+      g.moveTo(x + s * waistW * 0.55, hipY);
+      g.lineTo(x + s * (waistW * 0.3 + stride * 0.5), y - h * 0.02);
+      g.lineTo(x + s * (waistW * 0.6 + stride * 0.5), y);
+      g.lineTo(x + s * waistW * 0.15, hipY - h * 0.02);
+      g.closePath(); g.fill();
+    });
+
+    // cape (behind the torso) — shadows only; it's the single biggest thing
+    // that reads as "hooded wraith" and the hero must not have one
+    if (!hero) {
+      const capeLen = h * (0.5 + tier * 0.09);
+      g.beginPath();
+      g.moveTo(x - shoulderW * 0.85, chestY - h * 0.02);
+      const sway = Math.sin(t * 1.6) * h * 0.05 + Math.cos(t * 0.7) * h * 0.02;
+      g.quadraticCurveTo(x - shoulderW * 1.5 + sway, cy - h * 0.1, x - shoulderW * 0.7 + sway * 1.4, cy + capeLen - h * 0.4);
+      g.quadraticCurveTo(x, cy + capeLen - h * 0.32, x + shoulderW * 0.7 - sway * 1.4, cy + capeLen - h * 0.4);
+      g.quadraticCurveTo(x + shoulderW * 1.5 - sway, cy - h * 0.1, x + shoulderW * 0.85, chestY - h * 0.02);
+      g.closePath();
+      const cg = g.createLinearGradient(0, chestY, 0, cy + capeLen);
+      cg.addColorStop(0, '#1c0f2e'); cg.addColorStop(1, '#040308');
+      g.fillStyle = cg; g.fill();
     }
-    g.globalAlpha = alpha;
+
+    // torso: shadows get a sealed high-collar robe; the hero gets an open
+    // long coat with a V collar over the glowing chest core, and a split
+    // coat-tail instead of one closed hem — a genuinely different garment
     g.beginPath();
-    g.moveTo(x - sh, y - h * 0.68);
-    g.bezierCurveTo(x - sh * 1.3, y - h * 0.45, x - w * 1.1, y - h * 0.2, x - w, y);
-    const n = 7;
-    for (let i = 1; i <= n; i++) g.lineTo(x - w + (2 * w * i) / n, y + Math.sin(t * 2 + i * 1.7) * h * 0.012 + (i % 2 ? h * 0.02 : 0));
-    g.bezierCurveTo(x + w * 1.1, y - h * 0.2, x + sh * 1.3, y - h * 0.45, x + sh, y - h * 0.68);
-    g.bezierCurveTo(x + sh * 0.9, y - h * 0.74, x + hr * 1.5, y - h * 0.72, x + hr * 1.15, y - h * 0.8);
-    g.bezierCurveTo(x + hr * 1.1, y - h * 0.9, x - hr * 1.1, y - h * 0.9, x - hr * 1.15, y - h * 0.8);
-    g.bezierCurveTo(x - hr * 1.5, y - h * 0.72, x - sh * 0.9, y - h * 0.74, x - sh, y - h * 0.68);
+    g.moveTo(x - waistW * 0.7, hipY);
+    g.bezierCurveTo(x - waistW * 0.9, hipY - h * 0.1, x - shoulderW * 1.05, chestY + h * 0.06, x - shoulderW, chestY - h * 0.01 + lean * h);
+    if (hero) {
+      g.lineTo(x - shoulderW * 0.4, neckY + h * 0.02);
+      g.quadraticCurveTo(x - shoulderW * 0.18, hipY + h * 0.14, x, chestY + h * 0.09);
+      g.quadraticCurveTo(x + shoulderW * 0.18, hipY + h * 0.14, x + shoulderW * 0.4, neckY + h * 0.02);
+    } else {
+      g.lineTo(x - shoulderW * 0.42, neckY);
+      g.lineTo(x + shoulderW * 0.42, neckY);
+    }
+    g.lineTo(x + shoulderW, chestY - h * 0.01 - lean * h);
+    g.bezierCurveTo(x + shoulderW * 1.05, chestY + h * 0.06, x + waistW * 0.9, hipY - h * 0.1, x + waistW * 0.7, hipY);
+    if (hero) {
+      g.lineTo(x + waistW * 0.14, hipY - h * 0.03);
+      g.lineTo(x + waistW * 0.1, hipY + h * 0.05);
+      g.lineTo(x - waistW * 0.1, hipY + h * 0.05);
+      g.lineTo(x - waistW * 0.14, hipY - h * 0.03);
+    } else {
+      g.lineTo(x + waistW * 0.32, hipY - h * 0.05);
+      g.lineTo(x - waistW * 0.32, hipY - h * 0.05);
+    }
     g.closePath();
-    const bg = g.createLinearGradient(0, y - h, 0, y);
-    bg.addColorStop(0, boss ? '#3a0d1c' : '#241246'); bg.addColorStop(0.5, boss ? '#1a0510' : '#0d0620'); bg.addColorStop(1, '#04010a');
-    g.fillStyle = bg; g.shadowColor = 'rgba(' + rim + ',.9)'; g.shadowBlur = h * 0.09; g.fill();
-    g.shadowBlur = 0; g.lineWidth = Math.max(1, h * 0.008); g.strokeStyle = 'rgba(' + rim + ',.8)'; g.stroke();
+    const bg = g.createLinearGradient(0, chestY - h * 0.1, 0, hipY);
+    if (hero) { bg.addColorStop(0, '#232438'); bg.addColorStop(0.55, '#141420'); bg.addColorStop(1, '#0a0a12'); }
+    else { bg.addColorStop(0, boss ? '#420f21' : '#241246'); bg.addColorStop(0.55, boss ? '#1e0713' : '#150a2c'); bg.addColorStop(1, '#04010a'); }
+    g.fillStyle = bg; g.shadowColor = 'rgba(' + rim + ',.85)'; g.shadowBlur = h * 0.055; g.fill();
+    g.shadowBlur = 0; g.lineWidth = Math.max(1, h * 0.006); g.strokeStyle = 'rgba(' + rim + ',.75)'; g.stroke();
 
-    if (boss || o.horns) {
-      g.strokeStyle = 'rgba(' + rim + ',.95)'; g.lineWidth = Math.max(2, h * 0.02); g.lineCap = 'round';
-      [-1, 1].forEach((s) => { g.beginPath(); g.moveTo(x + s * hr * 0.9, hy - hr * 0.7); g.quadraticCurveTo(x + s * hr * 2.6, hy - hr * 1.2, x + s * hr * 2.2, hy - hr * 3.4); g.stroke(); });
-    }
-    if (o.kind === 'crown') {
-      g.fillStyle = 'rgba(240,171,252,.95)'; g.shadowColor = 'rgba(240,171,252,1)'; g.shadowBlur = h * 0.05;
-      g.beginPath(); g.moveTo(x - hr * 1.2, hy - hr * 1.2); g.lineTo(x - hr * 1.2, hy - hr * 2.3); g.lineTo(x - hr * 0.5, hy - hr * 1.6); g.lineTo(x, hy - hr * 2.6);
-      g.lineTo(x + hr * 0.5, hy - hr * 1.6); g.lineTo(x + hr * 1.2, hy - hr * 2.3); g.lineTo(x + hr * 1.2, hy - hr * 1.2); g.closePath(); g.fill(); g.shadowBlur = 0;
-    }
-    const eye = o.eye || (boss ? '#ff4d6d' : '#c4b5fd');
-    g.fillStyle = eye; g.shadowColor = eye; g.shadowBlur = h * 0.06;
-    [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(x + s * hr * 0.42, hy, hr * 0.3, hr * 0.1, s * 0.25, 0, 6.283); g.fill(); });
+    // chest core / rune line
+    g.fillStyle = 'rgba(' + rim + ',.9)'; g.shadowColor = 'rgba(' + rim + ',1)'; g.shadowBlur = h * 0.05;
+    g.beginPath(); g.ellipse(x, (chestY + hipY) / 2, h * 0.02, h * 0.05, 0, 0, 6.283); g.fill();
+    if (hero) { g.fillRect(x - h * 0.006, (chestY + hipY) / 2, h * 0.012, hipY - (chestY + hipY) / 2 + h * 0.03); }
     g.shadowBlur = 0;
 
-    weapon(g, x, y, h, boss ? 'club' : o.kind, rim);
+    // pauldrons (shoulder armour), bigger with tier
+    const padR = h * (0.06 + tier * 0.012);
+    [-1, 1].forEach((s) => {
+      g.beginPath(); g.ellipse(x + s * shoulderW * 0.98, chestY - h * 0.015, padR, padR * 0.72, s * 0.32, 0, 6.283);
+      const pg = g.createLinearGradient(0, chestY - padR, 0, chestY + padR);
+      pg.addColorStop(0, hero ? '#3a3c55' : boss ? '#5a1830' : '#3a2060'); pg.addColorStop(1, '#0a0a12');
+      g.fillStyle = pg; g.fill(); g.strokeStyle = 'rgba(' + rim + ',.7)'; g.lineWidth = Math.max(1, h * 0.005); g.stroke();
+      if (tier > 1) { g.beginPath(); g.moveTo(x + s * (shoulderW * 0.98 + padR * 0.5), chestY - h * 0.015 - padR * 0.3); g.lineTo(x + s * (shoulderW * 0.98 + padR * 1.5), chestY - h * 0.09); g.lineTo(x + s * (shoulderW * 0.98 + padR * 0.7), chestY + padR * 0.1); g.closePath(); g.fillStyle = 'rgba(' + rim + ',.55)'; g.fill(); }
+    });
+
+    // head: shadows get a smooth pointed hood; the hero gets a round bare
+    // head with separate spiky hair strands — two unmistakably different silhouettes
+    const headY = neckY - h * 0.07, headR = h * 0.075;
+    if (hero) {
+      g.beginPath(); g.arc(x, headY, headR, 0, 6.283);
+      const hg2 = g.createLinearGradient(0, headY - headR, 0, headY + headR);
+      hg2.addColorStop(0, '#2c2d42'); hg2.addColorStop(1, '#050308');
+      g.fillStyle = hg2; g.shadowColor = 'rgba(' + rim + ',.7)'; g.shadowBlur = h * 0.03; g.fill();
+      g.shadowBlur = 0; g.strokeStyle = 'rgba(' + rim + ',.65)'; g.lineWidth = Math.max(1, h * 0.004); g.stroke();
+      g.fillStyle = '#191926';
+      [-0.85, -0.42, 0, 0.42, 0.85].forEach((sp, i) => {
+        const a = -Math.PI / 2 + sp * 1.15, bx = x + Math.cos(a) * headR * 0.86, by = headY + Math.sin(a) * headR * 0.86;
+        const tipx = x + Math.cos(a) * headR * 1.55, tipy = headY + Math.sin(a) * headR * 1.55 - headR * 0.12;
+        g.beginPath(); g.moveTo(bx - headR * 0.16, by); g.lineTo(tipx, tipy); g.lineTo(bx + headR * 0.16, by); g.closePath(); g.fill();
+      });
+    } else {
+      g.beginPath();
+      g.moveTo(x - headR * 1.05, headY + headR * 0.55);
+      g.quadraticCurveTo(x - headR * 1.25, headY - headR * 0.6, x - headR * 0.4, headY - headR * 1.5);
+      g.quadraticCurveTo(x, headY - headR * 1.85, x + headR * 0.4, headY - headR * 1.5);
+      g.quadraticCurveTo(x + headR * 1.25, headY - headR * 0.6, x + headR * 1.05, headY + headR * 0.55);
+      g.closePath();
+      const hg = g.createLinearGradient(0, headY - headR * 1.6, 0, headY + headR);
+      hg.addColorStop(0, boss ? '#3a0d1c' : '#1c1036'); hg.addColorStop(1, '#050308');
+      g.fillStyle = hg; g.shadowColor = 'rgba(' + rim + ',.7)'; g.shadowBlur = h * 0.03; g.fill();
+      g.shadowBlur = 0; g.strokeStyle = 'rgba(' + rim + ',.65)'; g.lineWidth = Math.max(1, h * 0.004); g.stroke();
+    }
+
+    if (boss || o.horns || tier > 2) {
+      g.strokeStyle = 'rgba(' + rim + ',.95)'; g.lineWidth = Math.max(2, h * 0.018); g.lineCap = 'round';
+      [-1, 1].forEach((s) => { g.beginPath(); g.moveTo(x + s * headR * 0.7, headY - headR * 1.1); g.quadraticCurveTo(x + s * headR * 2.1, headY - headR * 1.6, x + s * headR * 1.8, headY - headR * 3.2); g.stroke(); });
+    }
+    if (o.kind === 'crown') {
+      g.fillStyle = 'rgba(232,181,101,.95)'; g.shadowColor = 'rgba(232,181,101,1)'; g.shadowBlur = h * 0.045;
+      g.beginPath(); g.moveTo(x - headR, headY - headR * 1.3); g.lineTo(x - headR, headY - headR * 2.3); g.lineTo(x - headR * 0.4, headY - headR * 1.7); g.lineTo(x, headY - headR * 2.6);
+      g.lineTo(x + headR * 0.4, headY - headR * 1.7); g.lineTo(x + headR, headY - headR * 2.3); g.lineTo(x + headR, headY - headR * 1.3); g.closePath(); g.fill(); g.shadowBlur = 0;
+    }
+    const eyeDim = stance === 'low' ? 0.45 : 1;
+    const eye = o.eye || (hero ? '#bfe0ff' : boss ? '#ff4d6d' : '#c4b5fd');
+    g.globalAlpha = alpha * eyeDim;
+    g.fillStyle = eye; g.shadowColor = eye; g.shadowBlur = h * 0.05;
+    [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(x + s * headR * 0.36, headY - headR * (hero ? 0.02 : 0.05), headR * 0.2, headR * 0.09, s * 0.2, 0, 6.283); g.fill(); });
+    g.shadowBlur = 0; g.globalAlpha = alpha;
+
+    const wKind = boss ? 'club' : (o.kind || 'sword');
+    const wAngle = stance === 'cheer' ? -0.5 : stance === 'ready' ? -0.08 : 0;
+    g.save(); g.translate(x, y); g.rotate(wAngle); g.translate(-x, -y);
+    weapon(g, x, y, h, wKind, rim);
+    g.restore();
 
     g.restore();
   }
@@ -2337,7 +2493,7 @@
       if (!ov) { resolve(); return; }
       const cv = $('#ariseCanvas'), g = cv.getContext('2d');
       let cfg;
-      if (it.type === 'arise') cfg = { word: 'ARISE', kicker: 'Shadow extracted', name: it.shadow.name, sub: it.shadow.title, extra: bonusText(it.shadow.bonus), spec: { kind: it.shadow.kind, eye: it.shadow.eye }, scale: it.shadow.scale };
+      if (it.type === 'arise') cfg = { word: 'ARISE', kicker: 'Shadow extracted', name: it.shadow.name, sub: it.shadow.title, extra: bonusText(it.shadow.bonus), spec: { kind: it.shadow.kind, eye: it.shadow.eye, tier: tierOf(it.shadow.scale) }, scale: it.shadow.scale };
       else if (it.type === 'rank') cfg = { word: 'RANK UP', kicker: 'Hunter rank', name: 'Rank ' + it.rank, sub: RANK_TITLES[it.rank], extra: '+' + RANK_XP[it.rank] + ' XP', badge: it.rank };
       else cfg = { word: 'GATE CLEARED', kicker: 'Boss defeated', name: it.name, sub: '+' + it.xp + ' XP', extra: '', spec: { boss: true }, scale: 1.3, dissolve: true };
 
@@ -2541,7 +2697,7 @@
       const pos = list.map((sh, k) => ({ sh: sh, k: k, off: (k % 2 ? -1 : 1) * Math.ceil(k / 2) * spacing }));
       pos.slice().reverse().forEach((p) => {
         const depth = p.k === 0 ? 1 : 0.9, hh = clamp(base * p.sh.scale * depth, 60, ch * 0.78);
-        drawFigure(g, cw / 2 + p.off, ch * 0.9 - (p.k ? ch * 0.03 : 0), hh, { kind: p.sh.kind, eye: p.sh.eye, t: t + p.k, alpha: p.k ? 0.92 : 1 });
+        drawFigure(g, cw / 2 + p.off, ch * 0.9 - (p.k ? ch * 0.03 : 0), hh, { kind: p.sh.kind, eye: p.sh.eye, tier: tierOf(p.sh.scale), t: t + p.k, alpha: p.k ? 0.92 : 1 });
       });
     }
     const fog = g.createLinearGradient(0, ch * 0.7, 0, ch); fog.addColorStop(0, 'rgba(120,60,220,0)'); fog.addColorStop(1, 'rgba(120,60,220,.4)');
@@ -2686,4 +2842,117 @@
   // ---------- hero scroll cue ----------
   const cue = document.getElementById('heroScroll');
   if (cue) cue.addEventListener('click', () => { const b = document.querySelector('.bento'); if (b) b.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); });
+})();
+
+/* ============================================================
+   COMPANION  -  an original character (not any licensed IP) that
+   stays on screen across every page and reacts to what you do:
+   alert while you focus, calm on a break, uneasy if your streak
+   is on the line, and a quick cheer when you finish something.
+   Reuses the layered warrior renderer (drawFigure) with faction:'hero'.
+   ============================================================ */
+(function () {
+  'use strict';
+  const SF = window.SF;
+  if (!SF) return;
+  const $ = document.getElementById.bind(document);
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const hex = (h) => { const s = (h || '#8a7fd9').replace('#', ''), v = parseInt(s.length === 3 ? s.replace(/./g, '$&$&') : s, 16); return ((v >> 16) & 255) + ',' + ((v >> 8) & 255) + ',' + (v & 255); };
+  const MOOD = {
+    idle:  { rim: () => hex(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()), stance: 'idle', eye: '#bfe0ff' },
+    focus: { rim: () => '232,115,74', stance: 'ready', eye: '#ffd7c2' },
+    break: { rim: () => '79,179,151', stance: 'idle', eye: '#c9ffe9' },
+    alert: { rim: () => '210,120,90', stance: 'low', eye: '#e8b5a0' }
+  };
+  const LINES = {
+    focus: ['Let\u2019s begin.', 'Eyes forward.', 'Stay with it.'],
+    break: ['Breathe. Back to it soon.', 'Good pause.'],
+    idle: ['Ready when you are.'],
+    alert: ['Your streak needs you today.', 'Don\u2019t let today slip.'],
+    cheerSmall: ['Good.', 'Nice.', 'Keep going.'],
+    cheerBig: ['Level up. Well earned.', 'That\u2019s real progress.']
+  };
+
+  let cv, g, wrap, lineEl, root;
+  let mood = 'idle', stance = 'idle', cheerUntil = 0, raf = 0, last = 0, t = 0, lineTimer = 0;
+  let dpr = 1, W = 0, H = 0;
+
+  function say(text, ms) {
+    if (!lineEl || !text) return;
+    lineEl.textContent = text; lineEl.hidden = false;
+    clearTimeout(lineTimer);
+    lineTimer = setTimeout(() => { lineEl.hidden = true; }, ms || 3600);
+  }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  function set(next, line) {
+    if (!MOOD[next]) next = 'idle';
+    mood = next; stance = MOOD[next].stance;
+    if (line) say(line);
+    else if (next === 'focus') say(pick(LINES.focus));
+    else if (next === 'break') say(pick(LINES.break));
+  }
+  function cheer(big) {
+    cheerUntil = performance.now() + 900;
+    say(pick(big ? LINES.cheerBig : LINES.cheerSmall), big ? 4400 : 2600);
+    if (root) { root.classList.remove('bump'); void root.offsetWidth; root.classList.add('bump'); }
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const r = wrap.getBoundingClientRect();
+    const w = Math.max(2, Math.round(r.width * dpr)), h = Math.max(2, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    W = r.width; H = r.height;
+  }
+
+  function frame(now) {
+    raf = 0;
+    if (document.hidden) return;
+    const dt = Math.min(0.06, (now - last) / 1000 || 0.016); last = now; t += dt * (reduce ? 0.2 : 1);
+    resize();
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    const inCheer = performance.now() < cheerUntil;
+    const m = MOOD[mood];
+    const opts = {
+      t: t, alpha: 1, faction: 'hero', tier: 1,
+      rimRgb: m.rim(), eye: m.eye,
+      stance: inCheer ? 'cheer' : stance,
+      kind: 'sword'
+    };
+    if (SF.system && SF.system.drawFigure) SF.system.drawFigure(g, W / 2, H * 0.96, H * 0.86, opts);
+    raf = requestAnimationFrame(frame);
+  }
+  function kick() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+
+  // a quiet, once-a-day nudge if there's a streak on the line and nothing has happened yet
+  let nudged = false;
+  function maybeNudge() {
+    if (nudged || mood !== 'idle') return;
+    try { if (sessionStorage.getItem('sf_nudged') === '1') { nudged = true; return; } } catch (e) { /* ignore */ }
+    const st = SF.streaks ? SF.streaks(SF.studyDaily()) : null;
+    if (st && st.atRisk && st.current > 0) {
+      nudged = true;
+      try { sessionStorage.setItem('sf_nudged', '1'); } catch (e) { /* ignore */ }
+      set('alert');
+    }
+  }
+
+  function init() {
+    root = $('companion'); wrap = $('companionCv'); lineEl = $('companionLine');
+    if (!root || !wrap) return;
+    cv = wrap; g = cv.getContext('2d');
+    root.addEventListener('click', () => SF.navigate('focus'));
+    kick();
+    setTimeout(maybeNudge, 4000);
+    setInterval(maybeNudge, 90000);
+  }
+
+  SF.companion = { set: set, cheer: cheer, say: say };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();
