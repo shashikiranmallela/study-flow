@@ -2327,6 +2327,7 @@
   // cape, a hooded (or bare) head with glowing eyes, and a weapon. Used for
   // both the shadow legion and the companion, with `faction` telling them apart.
   function drawFigure(g, x, y, h, o) {
+    if (window.Shadow3D && window.Shadow3D.figure(g, x, y, h, o)) return;   // 3D warrior (shadow3d.js); falls back to the 2D art below
     o = o || {};
     const t = o.t || 0, alpha = o.alpha == null ? 1 : o.alpha, boss = !!o.boss;
     const hero = o.faction === 'hero';
